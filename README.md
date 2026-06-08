@@ -134,4 +134,4 @@ Run the server on a Mac mini or payload computer on Spot's own WiFi.
 
 ## Credits
 
-Built by [Lingonberry Jam PBC](https://lingonberryjam.com).
+Built by [Lingonberry Jam PBC](https://lingonberry.org).
