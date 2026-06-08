@@ -30,6 +30,7 @@ from bosdyn.client.robot_command import (
 )
 from bosdyn.client.robot_state import RobotStateClient
 from google.protobuf.duration_pb2 import Duration
+from google.protobuf.timestamp_pb2 import Timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +73,15 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def _euler_to_quaternion(roll: float, pitch: float, yaw: float):
-    """ZYX body-rate convention → (w, x, y, z)."""
-    cr = math.cos(roll / 2)
-    sr = math.sin(roll / 2)
-    cp = math.cos(pitch / 2)
-    sp = math.sin(pitch / 2)
-    cy = math.cos(yaw / 2)
-    sy = math.sin(yaw / 2)
+    """ZXY convention (matches SDK EulerZXY used in stand mode) → (w, x, y, z)."""
+    cr = math.cos(roll / 2);  sr = math.sin(roll / 2)
+    cp = math.cos(pitch / 2); sp = math.sin(pitch / 2)
+    cy = math.cos(yaw / 2);   sy = math.sin(yaw / 2)
     return (
-        cr * cp * cy + sr * sp * sy,
-        sr * cp * cy - cr * sp * sy,
-        cr * sp * cy + sr * cp * sy,
-        cr * cp * sy - sr * sp * cy,
+        cy * cr * cp - sy * sr * sp,
+        cy * sr * cp - sy * cr * sp,
+        cy * cr * sp + sy * sr * cp,
+        cy * sr * sp + sy * cr * cp,
     )
 
 
@@ -262,12 +260,12 @@ class SpotController:
 
     def _build_body_control(self, pitch: float, roll: float, yaw: float, height: float):
         """
-        Build a BodyControlParams that holds the body at (pitch, roll, yaw, height)
-        relative to the footprint frame, even while walking.
+        Build a BodyControlParams holding the body at (pitch, roll, yaw, height)
+        relative to the footprint frame.
 
-        base_offset_rt_footprint is an SE3Trajectory in the footprint frame
-        (gravity-aligned, origin at geometric center of foot contacts).
-        A single knot at t=0 gives a constant offset.
+        The trajectory point is placed 0.5 s ahead of now so the locomotion
+        controller always has a live future target.  The SDK auto-converts
+        reference_time from local time to robot time before the gRPC call.
         """
         w, x, y, z = _euler_to_quaternion(roll, pitch, yaw)
 
@@ -278,18 +276,30 @@ class SpotController:
                 rotation=geometry_pb2.Quaternion(w=w, x=x, y=y, z=z),
             )
         )
-        point.time_since_reference.CopyFrom(Duration(seconds=0, nanos=0))
+        point.time_since_reference.CopyFrom(Duration(seconds=0, nanos=500_000_000))
 
+        now = time.time()
         traj = trajectory_pb2.SE3Trajectory()
+        traj.reference_time.CopyFrom(Timestamp(
+            seconds=int(now),
+            nanos=int((now % 1) * 1e9),
+        ))
+        traj.ang_interpolation = trajectory_pb2.ANG_INTERP_LINEAR
         traj.points.append(point)
 
         return spot_command_pb2.BodyControlParams(base_offset_rt_footprint=traj)
 
     def _build_mobility_params(self, s: ControlState) -> spot_command_pb2.MobilityParams:
         body_control = self._build_body_control(s.pitch, s.roll, s.yaw_offset, s.height)
+        # Use crawl gait (3 feet always planted) when any pose offset is active.
+        # Crawl's stable base lets the body-control constraint dominate over the
+        # locomotion planner's balance compensation, which in trot gait can temporarily
+        # override the body pose during the single-support phase.
+        has_pose = abs(s.pitch) > 0.01 or abs(s.roll) > 0.01 or abs(s.height) > 0.005
+        hint = spot_command_pb2.HINT_CRAWL if has_pose else spot_command_pb2.HINT_AUTO
         return spot_command_pb2.MobilityParams(
             body_control=body_control,
-            locomotion_hint=spot_command_pb2.HINT_AUTO,
+            locomotion_hint=hint,
         )
 
     def _send_command(self, s: ControlState):

@@ -311,6 +311,14 @@ document.getElementById("estop-btn").addEventListener("click", () => {
   send({ cmd: "estop" });
 });
 
+// Neutral pose — zero all sliders instantly
+document.getElementById("neutral-btn").addEventListener("click", () => {
+  sync("pitch",  0, "pitch-val",  v => `${v.toFixed(1)}°`);
+  sync("roll",   0, "roll-val",   v => `${v.toFixed(1)}°`);
+  sync("height", 0, "height-val", v => `${v.toFixed(0)} cm`);
+  sync("yaw",    0, "yaw-val",    v => `${v.toFixed(1)}°`);
+});
+
 // Sliders
 function bindSlider(id, stateKey, displayId, fmt) {
   const el   = document.getElementById(id);

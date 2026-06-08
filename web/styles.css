@@ -451,3 +451,23 @@ input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
   .joystick-zone { width: 130px; height: 130px; }
   .keys-hint { display: none; }
 }
+
+/* ---- Neutral pose button ---- */
+.pose-neutral-row {
+  display: flex;
+  justify-content: flex-end;
+}
+.neutral-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.neutral-btn:hover { border-color: var(--accent); color: var(--accent); }
