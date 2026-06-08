@@ -243,6 +243,22 @@ function updateStatus(s) {
   fb.textContent = allFaults.join("\n");
   fb.classList.toggle("hidden", allFaults.length === 0);
 
+  // Commanded vs actual pose diagnostic rows
+  const fmtPR = (p, r) => {
+    const sign = v => (v >= 0 ? "+" : "") + v.toFixed(1);
+    return `${sign(p)}° / ${sign(r)}°`;
+  };
+  if (s.pitch != null) {
+    document.getElementById("cmd-pr").textContent =
+      fmtPR(+(s.pitch * RAD).toFixed(1), +(s.roll ?? 0) * RAD);
+  }
+  if (s.pitch_actual != null) {
+    const el = document.getElementById("actual-pr");
+    el.textContent = fmtPR(s.pitch_actual, s.roll_actual ?? 0);
+    const errR = Math.abs((s.roll_actual ?? 0) - (s.roll ?? 0) * RAD);
+    el.className = `stat-val${errR > 3 ? " warn" : " ok"}`;
+  }
+
   // 3D orientation from server-confirmed commanded values
   if (s.pitch != null) updateOrientation(s.pitch, s.roll ?? 0, s.yaw_offset ?? 0, s.height ?? 0);
 }

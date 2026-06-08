@@ -28,6 +28,11 @@ from bosdyn.client.robot_command import (
     RobotCommandClient,
     blocking_stand,
 )
+from bosdyn.client.frame_helpers import (
+    get_a_tform_b,
+    BODY_FRAME_NAME,
+    GRAV_ALIGNED_BODY_FRAME_NAME,
+)
 from bosdyn.client.robot_state import RobotStateClient
 from google.protobuf.duration_pb2 import Duration
 from google.protobuf.timestamp_pb2 import Timestamp
@@ -101,6 +106,7 @@ class SpotController:
         self._command_client: Optional[RobotCommandClient] = None
         self._state_client: Optional[RobotStateClient] = None
         self._lease_client: Optional[LeaseClient] = None
+        self._last_robot_state = None   # cached by get_full_status, read by diagnostics
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -302,6 +308,53 @@ class SpotController:
             locomotion_hint=hint,
         )
 
+    def _actual_body_tilt(self):
+        """Return (pitch_rad, roll_rad) of actual body from latest cached robot state.
+        Uses the flat_body→body transform: flat_body is gravity-aligned at the body
+        centre, so this rotation is exactly the body's pitch and roll relative to gravity.
+        Returns (None, None) if state is unavailable.
+        """
+        rs = self._last_robot_state
+        if rs is None:
+            return None, None
+        try:
+            tform = get_a_tform_b(
+                rs.kinematic_state.transforms_snapshot,
+                GRAV_ALIGNED_BODY_FRAME_NAME,
+                BODY_FRAME_NAME,
+            )
+            if tform is None:
+                return None, None
+            return tform.rot.to_pitch(), tform.rot.to_roll()
+        except Exception:
+            return None, None
+
+    def _log_pose_diagnostic(self, s: ControlState):
+        """Emit one structured log line: commanded vs actual pitch/roll + error."""
+        mode = "WALK" if s.walking else "SIT" if s.sitting else "STAND"
+        has_pose = abs(s.pitch) > 0.01 or abs(s.roll) > 0.01 or abs(s.height) > 0.005
+        gait = "CRAWL" if (s.walking and has_pose) else "AUTO " if s.walking else "---- "
+
+        cmd_p = math.degrees(s.pitch)
+        cmd_r = math.degrees(s.roll)
+        cmd_h = s.height * 100
+
+        actual_p, actual_r = self._actual_body_tilt()
+        if actual_p is not None:
+            act_p = math.degrees(actual_p)
+            act_r = math.degrees(actual_r)
+            err_p = cmd_p - act_p
+            err_r = cmd_r - act_r
+            actual_str = (f"actual pitch={act_p:+5.1f}° roll={act_r:+5.1f}°"
+                          f"  err p={err_p:+5.1f}° r={err_r:+5.1f}°")
+        else:
+            actual_str = "actual=unavailable (no state yet)"
+
+        logger.info(
+            f"[{mode}/{gait}] cmd pitch={cmd_p:+5.1f}° roll={cmd_r:+5.1f}° h={cmd_h:+4.1f}cm"
+            f"  |  {actual_str}"
+        )
+
     def _send_command(self, s: ControlState):
         end_time = time.time() + COMMAND_PERIOD * COMMAND_TIMEOUT_FACTOR
 
@@ -332,6 +385,7 @@ class SpotController:
     # ------------------------------------------------------------------
 
     def _command_loop(self):
+        loop_count = 0
         while self._running:
             loop_start = time.monotonic()
             try:
@@ -339,6 +393,9 @@ class SpotController:
                     s = ControlState(**self.state.__dict__)
                 if not s.frozen:
                     self._send_command(s)
+                    loop_count += 1
+                    if loop_count % 10 == 0:   # log at ~2 Hz
+                        self._log_pose_diagnostic(s)
             except Exception as e:
                 logger.error(f"Command loop error: {e}")
 
@@ -378,6 +435,7 @@ class SpotController:
 
         try:
             rs = self._state_client.get_robot_state()
+            self._last_robot_state = rs
 
             # Battery
             if rs.battery_states:
@@ -418,6 +476,19 @@ class SpotController:
 
             # Foot contact: True = in contact with ground (FL, FR, RL, RR)
             out["foot_contact"] = [f.contact == f.CONTACT_MADE for f in rs.foot_state]
+
+            # Actual body tilt from flat_body→body frame transform
+            try:
+                tform = get_a_tform_b(
+                    rs.kinematic_state.transforms_snapshot,
+                    GRAV_ALIGNED_BODY_FRAME_NAME,
+                    BODY_FRAME_NAME,
+                )
+                if tform:
+                    out["pitch_actual"] = round(math.degrees(tform.rot.to_pitch()), 1)
+                    out["roll_actual"]  = round(math.degrees(tform.rot.to_roll()),  1)
+            except Exception:
+                pass
 
         except Exception as e:
             logger.debug(f"State poll skipped: {e}")
