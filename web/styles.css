@@ -1,0 +1,453 @@
+/* ----------------------------------------------------------------
+   Spot Controller — dark UI, touch-friendly, 360px min width
+   ---------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0d0f14;
+  --surface:  #1a1d26;
+  --border:   #2a2d3a;
+  --accent:   #00c6ff;
+  --walk:     #00e87a;
+  --stand:    #c8d0e0;
+  --danger:   #ff3a3a;
+  --text:     #e0e6f0;
+  --muted:    #6b7280;
+  --radius:   12px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 0 12px 24px;
+  gap: 16px;
+}
+
+/* ---- Header ---- */
+header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0 6px;
+}
+.brand {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--accent);
+  margin-right: auto;
+}
+.indicator { font-size: 22px; transition: color 0.3s; }
+.indicator.connected    { color: var(--walk); }
+.indicator.disconnected { color: var(--muted); }
+
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.badge.walk  { color: var(--walk);  border-color: var(--walk); }
+.badge.stand { color: var(--stand); border-color: var(--border); }
+
+/* Connect / Disconnect button */
+.conn-btn {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.2s;
+}
+.conn-btn.disconnected {
+  background: rgba(0, 232, 122, 0.15);
+  border-color: var(--walk);
+  color: var(--walk);
+}
+.conn-btn.connected {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+.conn-btn:active { opacity: 0.7; }
+.conn-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* Badge SIT state */
+.badge.sit { color: #f5c200; border-color: #f5c200; }
+
+.help-link {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--muted); font-size: 14px; font-weight: 700;
+  text-decoration: none; transition: border-color 0.15s, color 0.15s;
+}
+.help-link:hover { border-color: var(--accent); color: var(--accent); }
+
+.estop-btn {
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.estop-btn:active { opacity: 0.7; }
+
+/* ---- Telemetry row: 3D orient + status ---- */
+.telemetry-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.card-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* ---- 3D orientation card ---- */
+.orient-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.orient-scene {
+  width: 134px;
+  height: 90px;
+  perspective: 340px;
+  perspective-origin: 50% 35%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+
+.orient-stage {
+  transform-style: preserve-3d;
+  /* default viewing angle so we see top + front */
+  transform: rotateX(-28deg) rotateY(22deg);
+  transition: transform 0.08s linear;
+}
+
+.robot-box {
+  width: 90px;
+  height: 44px;
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.rb-face {
+  position: absolute;
+  background: #f5c200;
+  border: 1px solid rgba(0,0,0,0.35);
+}
+
+/* 90 × 44 × 50 box  (length × height × width) */
+.rb-top    { width:90px; height:50px; top:0;    left:0;   transform: rotateX(90deg)  translateZ(22px); background: #f5c200; }
+.rb-bottom { width:90px; height:50px; top:0;    left:0;   transform: rotateX(-90deg) translateZ(22px); background: #c8961a; }
+.rb-front  { width:90px; height:44px; top:0;    left:0;   transform: translateZ(25px); background: #e8b800; position: relative; }
+.rb-back   { width:90px; height:44px; top:0;    left:0;   transform: rotateY(180deg) translateZ(25px); background: #c8961a; }
+.rb-left   { width:50px; height:44px; top:0;    left:0;   transform: rotateY(-90deg) translateZ(0);   background: #daa800; }
+.rb-right  { width:50px; height:44px; top:0;    left:90px; transform: rotateY(90deg) translateZ(0);   background: #daa800; }
+
+/* Spine stripe on top */
+.rb-spine {
+  position: absolute;
+  top: 50%; left: 10px; right: 10px; height: 3px;
+  background: #000; opacity: 0.25;
+  transform: translateY(-50%);
+  border-radius: 2px;
+}
+
+/* Nose triangle on top (front end) */
+.rb-nose {
+  position: absolute;
+  top: 50%; right: 6px;
+  width: 0; height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid rgba(0,0,0,0.3);
+  transform: translateY(-50%);
+}
+
+/* Eyes on front face */
+.rb-eye-l, .rb-eye-r {
+  position: absolute;
+  width: 7px; height: 7px;
+  background: #111;
+  border-radius: 50%;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.rb-eye-l { left: 22px; }
+.rb-eye-r { right: 22px; }
+
+/* Pitch/roll/height readout below the box */
+.orient-readings {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.orient-readings span span { color: var(--accent); font-weight: 600; }
+
+/* ---- Status card ---- */
+.status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 18px;
+}
+.stat-label {
+  color: var(--muted);
+  width: 46px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.stat-val {
+  color: var(--text);
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+.stat-val.ok     { color: var(--walk); }
+.stat-val.warn   { color: #fbbf24; }
+.stat-val.danger { color: var(--danger); }
+
+/* Battery bar */
+.batt-wrap {
+  display: flex; align-items: center; gap: 6px; flex: 1;
+}
+.batt-bar {
+  flex: 1; height: 6px; background: var(--border);
+  border-radius: 3px; overflow: hidden;
+}
+.batt-fill {
+  height: 100%; width: 0%;
+  background: var(--walk);
+  border-radius: 3px;
+  transition: width 0.4s, background 0.4s;
+}
+.batt-fill.warn   { background: #fbbf24; }
+.batt-fill.danger { background: var(--danger); }
+
+/* Foot contact grid */
+.feet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+}
+.foot {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--border);
+  color: var(--muted);
+  text-align: center;
+  transition: background 0.2s, color 0.2s;
+}
+.foot.contact {
+  background: rgba(0, 232, 122, 0.2);
+  color: var(--walk);
+}
+
+/* Velocity row */
+.vel-row {
+  margin-top: 2px;
+  justify-content: space-between;
+}
+.vel-val {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  flex: 1;
+}
+.vel-label {
+  font-size: 9px; color: var(--muted); letter-spacing: 1px;
+}
+.vel-val span:last-child {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* Fault box */
+.fault-box {
+  background: rgba(255,58,58,0.12);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #ff8080;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.fault-box.hidden { display: none; }
+
+/* ---- Sit button ---- */
+.sit-btn {
+  color: #f5c200 !important;
+}
+.sit-btn:hover {
+  background: #1a1600 !important;
+  border-color: #f5c200 !important;
+  color: #f5c200 !important;
+}
+.sit-btn.active {
+  background: #1a1600 !important;
+  border-color: #f5c200 !important;
+  color: #f5c200 !important;
+}
+
+/* ---- Pose sliders ---- */
+.pose-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pose-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pose-panel label span { display: flex; justify-content: space-between; }
+.pose-panel label span span { color: var(--accent); font-weight: 600; }
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: grab;
+  box-shadow: 0 0 8px rgba(0, 198, 255, 0.4);
+}
+input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
+
+#yaw-label { opacity: 0.35; pointer-events: none; transition: opacity 0.2s; }
+#yaw-label.active { opacity: 1; pointer-events: auto; }
+
+/* ---- Mode toggle ---- */
+.mode-row {
+  display: flex;
+  gap: 8px;
+}
+.mode-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.mode-btn.active {
+  background: #0e2231;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#walk-btn.active {
+  background: #0d2219;
+  border-color: var(--walk);
+  color: var(--walk);
+}
+
+/* ---- Joysticks ---- */
+.joystick-row {
+  display: flex;
+  justify-content: space-around;
+  gap: 12px;
+  margin-top: 4px;
+}
+.joystick-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.joystick-zone {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  position: relative;
+  touch-action: none;
+}
+.joy-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ---- Keyboard hint ---- */
+.keys-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 4px;
+}
+
+@media (max-width: 400px) {
+  .joystick-zone { width: 130px; height: 130px; }
+  .keys-hint { display: none; }
+}

@@ -1,0 +1,12 @@
+# Python
+server/.venv/
+server/__pycache__/
+server/*.pyc
+**/__pycache__/
+*.py[cod]
+
+# Secrets — never commit
+server/.env
+
+# macOS
+.DS_Store

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spot Controller — Setup Guide</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0f14; --surface: #1a1d26; --border: #2a2d3a;
+      --accent: #00c6ff; --walk: #00e87a; --danger: #ff3a3a;
+      --text: #e0e6f0; --muted: #6b7280; --radius: 10px;
+    }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.6; font-size: 15px;
+    }
+    .page { max-width: 680px; margin: 0 auto; padding: 32px 20px 60px; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 36px; }
+    .back {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px 14px;
+      color: var(--text); font-size: 13px; font-weight: 600;
+      text-decoration: none; transition: border-color 0.15s;
+    }
+    .back:hover { border-color: var(--accent); text-decoration: none; }
+    .page-title { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: 1px; }
+
+    section { margin-bottom: 36px; }
+    h2 {
+      font-size: 13px; font-weight: 700; letter-spacing: 3px;
+      text-transform: uppercase; color: var(--muted);
+      border-bottom: 1px solid var(--border); padding-bottom: 8px;
+      margin-bottom: 18px;
+    }
+
+    .step {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+      margin-bottom: 12px; display: flex; gap: 16px; align-items: flex-start;
+    }
+    .step-num {
+      flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); color: #000; font-weight: 800;
+      font-size: 13px; display: flex; align-items: center; justify-content: center;
+    }
+    .step-body { flex: 1; }
+    .step-body strong { display: block; margin-bottom: 6px; font-size: 15px; }
+    .step-body p { color: var(--muted); font-size: 14px; margin-bottom: 8px; }
+    .step-body p:last-child { margin-bottom: 0; }
+
+    code, pre {
+      font-family: "SF Mono", "Fira Code", Menlo, monospace;
+      font-size: 13px; background: #0a0c10;
+      border: 1px solid var(--border); border-radius: 6px;
+    }
+    code { padding: 2px 6px; color: var(--accent); }
+    pre {
+      padding: 14px 16px; margin: 10px 0 0; color: var(--walk);
+      overflow-x: auto; white-space: pre;
+    }
+    pre .c { color: var(--muted); }  /* comment */
+
+    .cred-box {
+      background: #0a0c10; border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 18px; margin-top: 10px;
+    }
+    .cred-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+    .cred-row:last-child { margin-bottom: 0; }
+    .cred-key { color: var(--muted); }
+    .cred-val { font-family: "SF Mono", Menlo, monospace; color: var(--accent); font-size: 13px; }
+
+    .warn {
+      border-left: 3px solid var(--danger); background: #1a0e0e;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 12px 16px; font-size: 14px; color: #ffb0b0;
+      margin-top: 10px;
+    }
+    .note {
+      border-left: 3px solid var(--accent); background: #0d1a22;
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 12px 16px; font-size: 14px; color: #b0d8f0;
+      margin-top: 10px;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+    th { text-align: left; padding: 8px 12px; color: var(--muted); font-weight: 600;
+         font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+         border-bottom: 1px solid var(--border); }
+    td { padding: 8px 12px; border-bottom: 1px solid #1e2130; }
+    td:first-child { font-family: "SF Mono", Menlo, monospace; color: var(--accent); font-size: 13px; }
+    tr:last-child td { border-bottom: none; }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <a href="/" class="back">← Controller</a>
+    <span class="page-title">SETUP GUIDE</span>
+  </header>
+
+  <!-- ── 1. WiFi ───────────────────────────────────────────── -->
+  <section>
+    <h2>1 · Connect to Spot's WiFi</h2>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Join the robot's WiFi network</strong>
+        <p>All credentials are on the sticker inside the battery bay.</p>
+        <div class="cred-box">
+          <div class="cred-row"><span class="cred-key">WiFi SSID</span><span class="cred-val">spot-BD-61330023</span></div>
+          <div class="cred-row"><span class="cred-key">WiFi Password</span><span class="cred-val">f3md5p8fyeya</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Robot SDK credentials</strong>
+        <div class="cred-box">
+          <div class="cred-row"><span class="cred-key">User Username</span><span class="cred-val">user</span></div>
+          <div class="cred-row"><span class="cred-key">User Password</span><span class="cred-val">ffha0creh9fc</span></div>
+          <div class="cred-row"><span class="cred-key">Admin Username</span><span class="cred-val">admin</span></div>
+          <div class="cred-row"><span class="cred-key">Admin Password</span><span class="cred-val">0bomv0rcr3mt</span></div>
+        </div>
+        <div class="note">
+          Once connected to Spot's WiFi you will <strong>not</strong> have internet access —
+          that's expected. This guide and all controller assets are served locally.
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Confirm the robot's IP address</strong>
+        <p>Spot's default IP on its own WiFi is <code>192.168.80.3</code>.
+           Ping it to confirm:</p>
+        <pre>ping 192.168.80.3</pre>
+        <p>If it doesn't respond, check the tablet app for the actual IP.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 2. Python setup ──────────────────────────────────── -->
+  <section>
+    <h2>2 · Set Up the Python Server</h2>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Install Python 3.10+</strong>
+        <p>Check your version:</p>
+        <pre>python3 --version</pre>
+        <p>If you need to install it: <code>brew install python@3.11</code>
+           (requires Homebrew — do this <em>before</em> going offline).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Create a virtual environment and install dependencies</strong>
+        <p>Run once while you still have internet:</p>
+        <pre>cd ~/dev/bot-pilot/server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt</pre>
+        <p>After this, the <code>.venv</code> folder has everything needed offline.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Create the <code>.env</code> config file</strong>
+        <pre>cp ~/dev/bot-pilot/server/.env.example ~/dev/bot-pilot/server/.env</pre>
+        <p>Then open <code>server/.env</code> in any editor and set:</p>
+        <div class="cred-box">
+          <div class="cred-row"><span class="cred-key">SPOT_HOSTNAME</span><span class="cred-val">192.168.80.3</span></div>
+          <div class="cred-row"><span class="cred-key">SPOT_USERNAME</span><span class="cred-val">user</span></div>
+          <div class="cred-row"><span class="cred-key">SPOT_PASSWORD</span><span class="cred-val">ffha0creh9fc</span></div>
+        </div>
+        <p>The finished file looks like this:</p>
+        <pre>SPOT_HOSTNAME=192.168.80.3
+SPOT_USERNAME=user
+SPOT_PASSWORD=ffha0creh9fc</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 3. First run ─────────────────────────────────────── -->
+  <section>
+    <h2>3 · First Run</h2>
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <strong>Connect your Mac to Spot's WiFi</strong>
+        <p>See section 1 above. Confirm <code>ping 192.168.80.3</code> succeeds.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <strong>Start the server</strong>
+        <pre>cd ~/dev/bot-pilot/server
+source .venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000</pre>
+        <p>You should see:</p>
+        <pre><span class="c">INFO  Connecting to Spot at 192.168.80.3
+INFO  Authenticated and time-synced
+INFO  Robot standing — starting command loop
+INFO  Uvicorn running on http://0.0.0.0:8000</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <strong>Open the controller</strong>
+        <p>Open <a href="/">http://localhost:8000</a> in Safari or Chrome.
+           The green dot in the top-left confirms the WebSocket is live.</p>
+        <div class="warn">
+          Keep the terminal window open — closing it shuts down the server
+          and the robot will stop (velocity command timeout).
+        </div>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-body">
+        <strong>Power on the robot first</strong>
+        <p>The tablet app or physical button must have powered the robot on
+           <em>before</em> you start the server. The server calls <code>robot.power_on()</code>
+           and <code>blocking_stand()</code> on startup — the robot will stand up automatically.</p>
+        <div class="warn">
+          <strong>Clear the area around the robot before running the server.</strong>
+          It will stand as soon as authentication succeeds.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── 4. Controls ──────────────────────────────────────── -->
+  <section>
+    <h2>4 · Controls</h2>
+
+    <table>
+      <tr><th>Input</th><th>Action</th></tr>
+      <tr><td>Left joystick</td><td>Move forward / back / strafe</td></tr>
+      <tr><td>Right joystick</td><td>Rotate (yaw)</td></tr>
+      <tr><td>Pitch slider</td><td>Tilt body nose up/down (persists while walking)</td></tr>
+      <tr><td>Roll slider</td><td>Tilt body left/right (persists while walking)</td></tr>
+      <tr><td>Height slider</td><td>Body height offset from nominal</td></tr>
+      <tr><td>Yaw slider</td><td>Body yaw in Stand/Pose mode</td></tr>
+      <tr><td>Stand / Walk buttons</td><td>Switch mode — pose is kept on transition</td></tr>
+      <tr><td>E-STOP</td><td>Cut motor power immediately</td></tr>
+    </table>
+
+    <h2 style="margin-top: 24px;">Keyboard (desktop)</h2>
+    <table>
+      <tr><th>Key</th><th>Action</th></tr>
+      <tr><td>W / S</td><td>Forward / Back</td></tr>
+      <tr><td>A / D</td><td>Strafe Left / Right</td></tr>
+      <tr><td>Q / E</td><td>Rotate Left / Right</td></tr>
+      <tr><td>↑ / ↓</td><td>Pitch body</td></tr>
+      <tr><td>← / →</td><td>Roll body</td></tr>
+      <tr><td>+ / −</td><td>Height</td></tr>
+      <tr><td>Space</td><td>Toggle Walk / Stand</td></tr>
+      <tr><td>Esc</td><td>E-STOP</td></tr>
+    </table>
+
+    <h2 style="margin-top: 24px;">Gamepad (PS5 / Xbox)</h2>
+    <table>
+      <tr><th>Input</th><th>Action</th></tr>
+      <tr><td>Left stick</td><td>Move</td></tr>
+      <tr><td>Right stick</td><td>Rotate</td></tr>
+      <tr><td>L2 / R2</td><td>Roll body left / right</td></tr>
+      <tr><td>Cross / A</td><td>Stand mode</td></tr>
+      <tr><td>Triangle / Y</td><td>Walk mode</td></tr>
+      <tr><td>Circle / B</td><td>E-STOP</td></tr>
+    </table>
+  </section>
+
+  <!-- ── 5. Troubleshooting ───────────────────────────────── -->
+  <section>
+    <h2>5 · Troubleshooting</h2>
+
+    <div class="step">
+      <div class="step-num">!</div>
+      <div class="step-body">
+        <strong>Server fails: "lease already held"</strong>
+        <p>Another client (the tablet app, previous session) has the lease.
+           Release it from the tablet app, or restart the robot.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">!</div>
+      <div class="step-body">
+        <strong>Robot doesn't stand / "Motor power failed"</strong>
+        <p>The robot must be powered on and in a safe starting position (on the ground, legs tucked).
+           Power it on via the physical button before running the server.</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">!</div>
+      <div class="step-body">
+        <strong>Controller page shows disconnected dot</strong>
+        <p>The server isn't running or the browser is on the wrong network.
+           Confirm the terminal shows the uvicorn line and that you're connected
+           to Spot's WiFi (not your home network).</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">!</div>
+      <div class="step-body">
+        <strong>Body pose not maintaining while walking</strong>
+        <p>Confirm you're in <strong>Walk</strong> mode (green badge). In Stand mode,
+           body pose uses a different command path. The sliders affect both modes
+           but the walk-with-pose feature requires Walk mode to be active.</p>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

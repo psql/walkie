@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Spot Controller</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header bar -->
+    <header>
+      <div class="brand">SPOT</div>
+      <div id="conn-indicator" class="indicator disconnected">●</div>
+      <div id="mode-badge" class="badge stand">STAND</div>
+      <button id="conn-btn" class="conn-btn disconnected">Connect</button>
+      <a href="/setup" class="help-link" title="Setup guide">?</a>
+      <button id="estop-btn" class="estop-btn">E-STOP</button>
+    </header>
+
+    <!-- 3D orientation + status panel side by side -->
+    <div class="telemetry-row">
+
+      <!-- 3D body orientation -->
+      <div class="orient-card">
+        <div class="card-title">ORIENTATION</div>
+        <div class="orient-scene">
+          <div class="orient-stage" id="orient-stage">
+            <div class="robot-box">
+              <div class="rb-face rb-top">
+                <div class="rb-spine"></div>
+                <div class="rb-nose"></div>
+              </div>
+              <div class="rb-face rb-bottom"></div>
+              <div class="rb-face rb-front">
+                <div class="rb-eye-l"></div>
+                <div class="rb-eye-r"></div>
+              </div>
+              <div class="rb-face rb-back"></div>
+              <div class="rb-face rb-left"></div>
+              <div class="rb-face rb-right"></div>
+            </div>
+          </div>
+        </div>
+        <div class="orient-readings">
+          <span>P <span id="o-pitch">0.0°</span></span>
+          <span>R <span id="o-roll">0.0°</span></span>
+          <span>H <span id="o-height">0cm</span></span>
+        </div>
+      </div>
+
+      <!-- Robot status panel -->
+      <div class="status-card">
+        <div class="card-title">STATUS</div>
+
+        <div class="stat-row">
+          <span class="stat-label">Battery</span>
+          <div class="batt-wrap">
+            <div class="batt-bar"><div class="batt-fill" id="batt-fill"></div></div>
+            <span class="stat-val" id="batt-pct">--</span>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">Runtime</span>
+          <span class="stat-val" id="batt-runtime">--</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">Motors</span>
+          <span class="stat-val" id="motor-state">--</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">State</span>
+          <span class="stat-val" id="behavior-state">--</span>
+        </div>
+
+        <div class="stat-row">
+          <span class="stat-label">E-Stop</span>
+          <span class="stat-val" id="estop-state">--</span>
+        </div>
+
+        <!-- Foot contact (FL FR / RL RR) -->
+        <div class="stat-row">
+          <span class="stat-label">Feet</span>
+          <div class="feet-grid">
+            <div class="foot" id="foot-fl" title="Front Left">FL</div>
+            <div class="foot" id="foot-fr" title="Front Right">FR</div>
+            <div class="foot" id="foot-rl" title="Rear Left">RL</div>
+            <div class="foot" id="foot-rr" title="Rear Right">RR</div>
+          </div>
+        </div>
+
+        <!-- Velocity readout -->
+        <div class="stat-row vel-row">
+          <span class="vel-val"><span class="vel-label">Vx</span><span id="v-vx">0.00</span></span>
+          <span class="vel-val"><span class="vel-label">Vy</span><span id="v-vy">0.00</span></span>
+          <span class="vel-val"><span class="vel-label">ω</span><span id="v-vrot">0.00</span></span>
+        </div>
+
+        <!-- Fault display -->
+        <div id="fault-box" class="fault-box hidden"></div>
+      </div>
+    </div>
+
+    <!-- Body pose sliders — persist across walk/stand -->
+    <section class="pose-panel">
+      <label>
+        <span>Pitch <span id="pitch-val">0.0°</span></span>
+        <input type="range" id="pitch" min="-28" max="28" value="0" step="0.5" />
+      </label>
+      <label>
+        <span>Roll <span id="roll-val">0.0°</span></span>
+        <input type="range" id="roll" min="-17" max="17" value="0" step="0.5" />
+      </label>
+      <label>
+        <span>Height <span id="height-val">0 cm</span></span>
+        <input type="range" id="height" min="-10" max="15" value="0" step="0.5" />
+      </label>
+      <label id="yaw-label">
+        <span>Yaw <span id="yaw-val">0.0°</span></span>
+        <input type="range" id="yaw" min="-30" max="30" value="0" step="0.5" />
+      </label>
+    </section>
+
+    <!-- Mode toggle -->
+    <div class="mode-row">
+      <button id="stand-btn" class="mode-btn active">Stand / Pose</button>
+      <button id="sit-btn" class="mode-btn sit-btn">Sit ↓</button>
+      <button id="walk-btn" class="mode-btn">Walk</button>
+    </div>
+
+    <!-- Joystick area -->
+    <div class="joystick-row">
+      <div class="joystick-wrap">
+        <div id="joy-left" class="joystick-zone"></div>
+        <div class="joy-label">Move</div>
+      </div>
+      <div class="joystick-wrap">
+        <div id="joy-right" class="joystick-zone"></div>
+        <div class="joy-label">Turn</div>
+      </div>
+    </div>
+
+    <!-- Keyboard cheatsheet (desktop) -->
+    <div class="keys-hint">
+      WASD move · QE turn · ↑↓ pitch · ←→ roll · +- height · Space walk · X sit · Esc E-stop
+    </div>
+
+  </div>
+
+  <!-- nipple.js bundled locally — no internet required -->
+  <script src="nipple.min.js"></script>
+  <script src="controller.js"></script>
+</body>
+</html>
