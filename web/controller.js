@@ -164,6 +164,9 @@ function setConnectedUI(connected) {
     btn.textContent = "Connect";
     btn.className = "conn-btn disconnected";
     setMode("sit");   // reflect that robot is (or will be) sitting
+    // Server link is down, so the robot link is unknown: show offline until a
+    // fresh status arrives.
+    setRobotStatus(false, "server unreachable");
   }
 }
 
@@ -171,7 +174,19 @@ function setConnectedUI(connected) {
 // Status display
 // -----------------------------------------------------------------------
 
+function setRobotStatus(connected, error) {
+  const el = document.getElementById("robot-status");
+  el.className = `robot-status ${connected ? "online" : "offline"}`;
+  el.textContent = connected ? "ROBOT ●" : "ROBOT ○";
+  el.title = connected
+    ? "Server link to robot: connected"
+    : `Server link to robot: offline${error ? " (" + error + ")" : ""}`;
+}
+
 function updateStatus(s) {
+  // Robot link state (server to robot), distinct from the browser to server dot
+  if ("robot_connected" in s) setRobotStatus(s.robot_connected, s.robot_error);
+
   // Sync mode badge with server state if it differs (e.g. after reconnect)
   if (s.sitting && state.mode !== "sit")   setMode("sit");
   else if (s.walking && state.mode !== "walk") setMode("walk");
@@ -524,8 +539,76 @@ document.getElementById("log-clear").addEventListener("click", () => {
 });
 
 // -----------------------------------------------------------------------
+// Cameras: MJPEG <img> feeds, lease-free and independent of control.
+// Forward driver view (front L + R) is always on; side/rear toggle.
+// Clearing src closes the MJPEG connection so a hidden feed frees bandwidth.
+// -----------------------------------------------------------------------
+
+const CAM_FORWARD = ["frontleft_fisheye_image", "frontright_fisheye_image"];
+const camActive = new Set();   // sources currently streaming
+let camMasterOn = true;
+
+const camUrl = src => `/camera/${src}`;
+const camImg = src => document.querySelector(`.cam-tile[data-src="${src}"] .cam-img`);
+
+function startCam(src) {
+  const img = camImg(src);
+  if (!img) return;
+  camActive.add(src);
+  // Cache-bust so a reconnect always opens a fresh stream rather than a dead one.
+  img.src = camUrl(src) + `?t=${Date.now()}`;
+}
+
+function stopCam(src) {
+  const img = camImg(src);
+  if (!img) return;
+  camActive.delete(src);
+  img.removeAttribute("src");   // closes the MJPEG connection (frees robot wifi)
+}
+
+// Side/rear toggle: show the tile and stream it (when master is on), or hide + stop.
+function toggleOptional(src, btn) {
+  const tile = document.querySelector(`.cam-tile[data-src="${src}"]`);
+  const show = tile.classList.contains("hidden");
+  tile.classList.toggle("hidden", !show);
+  btn.classList.toggle("active", show);
+  if (show && camMasterOn) startCam(src);
+  else stopCam(src);
+}
+
+// Master switch: drop or restore every feed instantly if wifi gets tight.
+function setCamMaster(on) {
+  camMasterOn = on;
+  const btn = document.getElementById("cam-master");
+  btn.textContent = on ? "Cameras: On" : "Cameras: Off";
+  btn.classList.toggle("off", !on);
+  if (on) {
+    CAM_FORWARD.forEach(startCam);
+    document.querySelectorAll(".cam-tile.opt:not(.hidden)")
+      .forEach(t => startCam(t.dataset.src));
+  } else {
+    [...camActive].forEach(stopCam);
+  }
+}
+
+document.querySelectorAll(".cam-toggle").forEach(btn => {
+  btn.addEventListener("click", () => toggleOptional(btn.dataset.src, btn));
+});
+document.getElementById("cam-master").addEventListener("click", () => setCamMaster(!camMasterOn));
+
+// Reconnect a dropped feed (wifi blip) without crashing: retry while still active.
+document.querySelectorAll(".cam-img").forEach(img => {
+  img.addEventListener("error", () => {
+    const src = img.closest(".cam-tile").dataset.src;
+    if (!camMasterOn || !camActive.has(src)) return;
+    setTimeout(() => { if (camActive.has(src)) startCam(src); }, 1500);
+  });
+});
+
+// -----------------------------------------------------------------------
 // Boot
 // -----------------------------------------------------------------------
 
 orientFromSliders();
+setCamMaster(true);   // forward feeds start immediately, independent of Connect
 connect();

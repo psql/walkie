@@ -12,7 +12,8 @@
     <!-- Header bar -->
     <header>
       <div class="brand">SPOT</div>
-      <div id="conn-indicator" class="indicator disconnected">●</div>
+      <div id="conn-indicator" class="indicator disconnected" title="Browser link to server">●</div>
+      <div id="robot-status" class="robot-status offline" title="Server link to robot">ROBOT ○</div>
       <div id="mode-badge" class="badge stand">STAND</div>
       <div id="backend-chip" class="backend-chip" title="Active walk backend">--</div>
       <button id="conn-btn" class="conn-btn disconnected">Connect</button>
@@ -114,6 +115,45 @@
         <div id="fault-box" class="fault-box hidden"></div>
       </div>
     </div>
+
+    <!-- Camera feeds — base-unit fisheye. Forward driver view (front L + R) is
+         always on; side/rear are toggleable. Rotation via CSS to keep the server
+         zero-decode (angles negated from the get_image --auto-rotate map). -->
+    <section class="camera-panel" id="camera-panel">
+      <div class="camera-head">
+        <span class="card-title" style="margin:0">CAMERAS</span>
+        <div class="camera-toggles">
+          <button class="cam-toggle" data-src="left_fisheye_image">Left</button>
+          <button class="cam-toggle" data-src="right_fisheye_image">Right</button>
+          <button class="cam-toggle" data-src="back_fisheye_image">Back</button>
+          <button class="cam-master" id="cam-master">Cameras: On</button>
+        </div>
+      </div>
+      <div class="camera-grid" id="camera-grid">
+        <!-- Forward driver view: front-left then front-right, always on -->
+        <div class="cam-tile" data-src="frontleft_fisheye_image">
+          <img class="cam-img rot-frontleft" alt="front left camera" />
+          <span class="cam-label">FRONT L</span>
+        </div>
+        <div class="cam-tile" data-src="frontright_fisheye_image">
+          <img class="cam-img rot-frontright" alt="front right camera" />
+          <span class="cam-label">FRONT R</span>
+        </div>
+        <!-- Optional tiles, hidden until toggled -->
+        <div class="cam-tile opt hidden" data-src="left_fisheye_image">
+          <img class="cam-img" alt="left camera" />
+          <span class="cam-label">LEFT</span>
+        </div>
+        <div class="cam-tile opt hidden" data-src="right_fisheye_image">
+          <img class="cam-img rot-right" alt="right camera" />
+          <span class="cam-label">RIGHT</span>
+        </div>
+        <div class="cam-tile opt hidden" data-src="back_fisheye_image">
+          <img class="cam-img" alt="back camera" />
+          <span class="cam-label">BACK</span>
+        </div>
+      </div>
+    </section>
 
     <!-- Body pose sliders — persist across walk/stand -->
     <section class="pose-panel">

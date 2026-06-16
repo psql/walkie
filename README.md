@@ -110,6 +110,37 @@ Hit **http://localhost:8000/setup** for the full interactive guide.
 
 ---
 
+## Cameras
+
+The base-unit grayscale fisheye cameras are shown as live tiles in the UI. These
+come from the image service (request-response, republished to the browser as
+MJPEG), need **no lease**, and are fully decoupled from the control loop and
+E-stop, so they cannot affect robot control. All frame grabs run in worker
+threads.
+
+- The two **forward** feeds (front-left + front-right driver view) are always on.
+- **Left**, **Right**, and **Back** tiles toggle on/off. Toggling a tile off closes
+  its stream so it stops using robot wifi.
+- **Cameras: On/Off** master toggle drops all feeds instantly if the link gets tight.
+- Defaults: `CAMERA_FPS = 8` (in `server/main.py`) and JPEG `quality = 50`. Lower
+  either if control latency suffers; control always wins over image smoothness.
+- Front and right feeds are rotated upright in the browser via CSS (angles negated
+  from the official `get_image --auto-rotate` map: front-left 78°, front-right 102°,
+  right 180°).
+
+## Robot link and offline behavior
+
+The web UI loads and stays reachable **whether or not the robot is connected**.
+The server connects to the robot in the background and retries every 10 s while
+the link is down. The header shows two independent indicators:
+
+- The **dot** is the browser-to-server link (the WebSocket / Connect button).
+- The **ROBOT** chip is the server-to-robot link: green `ROBOT ●` when connected,
+  red `ROBOT ○` when offline (hover for the reason). Control commands are ignored
+  while offline; they resume automatically once the robot connects.
+
+---
+
 ## Controls
 
 | Input | Action |

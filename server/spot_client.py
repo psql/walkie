@@ -34,6 +34,8 @@ from bosdyn.client.frame_helpers import (
     GRAV_ALIGNED_BODY_FRAME_NAME,
 )
 from bosdyn.client.robot_state import RobotStateClient
+from bosdyn.client.image import ImageClient, build_image_request
+from bosdyn.api import image_pb2
 
 from custom_gait import CustomGaitWalker
 
@@ -96,6 +98,14 @@ def _euler_to_quaternion(roll: float, pitch: float, yaw: float):
 
 
 class SpotController:
+    # Base-unit grayscale fisheye cameras served by the image service. These need
+    # no lease and are independent of the command loop and E-stop. Used as an
+    # allowlist so the camera endpoint cannot request arbitrary services.
+    CAMERA_SOURCES = {
+        "frontleft_fisheye_image", "frontright_fisheye_image",
+        "left_fisheye_image", "right_fisheye_image", "back_fisheye_image",
+    }
+
     def __init__(self, hostname: str):
         self.hostname = hostname
         self.sdk = bosdyn.client.create_standard_sdk("spot-controller")
@@ -103,6 +113,7 @@ class SpotController:
         self.state = ControlState()
         self._lock = threading.Lock()
 
+        self.robot_connected = False   # True once setup() completes; UI shows this
         self._running = False
         self._command_thread: Optional[threading.Thread] = None
         self._lease_keepalive: Optional[LeaseKeepAlive] = None
@@ -111,6 +122,7 @@ class SpotController:
         self._command_client: Optional[RobotCommandClient] = None
         self._state_client: Optional[RobotStateClient] = None
         self._lease_client: Optional[LeaseClient] = None
+        self._image_client: Optional[ImageClient] = None   # base-unit cameras (no lease needed)
         self._last_robot_state = None   # cached by get_full_status, read by diagnostics
         self._walker: Optional[CustomGaitWalker] = None   # Custom Gait backend (None until setup)
 
@@ -129,6 +141,20 @@ class SpotController:
         self._command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
         self._state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
         estop_client = self.robot.ensure_client(EstopClient.default_service_name)
+
+        # Image client for the base cameras. Lease-free and decoupled from control,
+        # so a failure here must never block setup of the control path.
+        try:
+            self._image_client = self.robot.ensure_client(ImageClient.default_service_name)
+            available = {s.name for s in self._image_client.list_image_sources()}
+            missing = self.CAMERA_SOURCES - available
+            if missing:
+                logger.warning(f"Camera sources not advertised by robot: {sorted(missing)}")
+            logger.info(f"Image client ready. Base camera sources: {sorted(self.CAMERA_SOURCES & available)}")
+        except Exception as e:
+            self._image_client = None
+            logger.warning(f"Image client unavailable, cameras disabled: {e}")
+
         keepalive_client = self.robot.ensure_client(KeepaliveClient.default_service_name)
 
         # Clear any keepalive policies from the tablet (these can block power-on)
@@ -188,6 +214,7 @@ class SpotController:
             self.state.frozen = False
         self._command_thread = threading.Thread(target=self._command_loop, daemon=True)
         self._command_thread.start()
+        self.robot_connected = True
 
     def shutdown(self):
         """Sit, power off, release everything."""
@@ -501,6 +528,7 @@ class SpotController:
             s = self.state
             return {
                 "connected": True,
+                "robot_connected": self.robot_connected,
                 "walk_backend": WALK_BACKEND,
                 "gait_running": bool(self._walker and self._walker.is_running),
                 "walking": s.walking,
@@ -583,3 +611,29 @@ class SpotController:
             logger.debug(f"State poll skipped: {e}")
 
         return out
+
+    # ------------------------------------------------------------------
+    # Cameras (base unit, image service)
+    # ------------------------------------------------------------------
+
+    def get_camera_jpeg(self, source: str, quality: int = 50) -> Optional[bytes]:
+        """Grab one JPEG frame from a base camera. Returns None on failure.
+
+        Runs synchronously; call via asyncio.to_thread from the endpoint so it never
+        blocks the 20 Hz command loop. Requires no lease and is fully independent of
+        the command loop and E-stop. JPEG is requested directly from the service, so
+        there is no server-side decode.
+        """
+        if source not in self.CAMERA_SOURCES or not self._image_client:
+            return None
+        try:
+            req = build_image_request(
+                source,
+                quality_percent=quality,
+                image_format=image_pb2.Image.FORMAT_JPEG,
+            )
+            responses = self._image_client.get_image([req])
+            return responses[0].shot.image.data  # JPEG bytes
+        except Exception as e:
+            logger.debug(f"Image grab failed for {source}: {e}")
+            return None
