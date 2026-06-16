@@ -180,6 +180,16 @@ function updateStatus(s) {
     setMode("stand");
   }
 
+  // Walk backend chip: shows which paradigm the server is using, and (for
+  // custom gait) whether the gait is actually running.
+  if (s.walk_backend != null) {
+    const chip = document.getElementById("backend-chip");
+    const custom = s.walk_backend === "custom_gait";
+    const live = custom && s.gait_running;
+    chip.textContent = custom ? (live ? "CGAIT●" : "CGAIT") : "MOBILITY";
+    chip.className = `backend-chip${custom ? " custom" : " mobility"}${live ? " live" : ""}`;
+  }
+
   // Battery
   if (s.battery_pct != null) {
     const pct = s.battery_pct;
@@ -261,6 +271,9 @@ function updateStatus(s) {
 
   // 3D orientation from server-confirmed commanded values
   if (s.pitch != null) updateOrientation(s.pitch, s.roll ?? 0, s.yaw_offset ?? 0, s.height ?? 0);
+
+  // Server logs
+  if (Array.isArray(s.log_lines) && s.log_lines.length) appendLogs(s.log_lines);
 }
 
 // -----------------------------------------------------------------------
@@ -451,6 +464,64 @@ function pollGamepad() {
   const l2 = gp.buttons[6]?.value ?? 0, r2 = gp.buttons[7]?.value ?? 0;
   if (Math.abs(l2 - r2) > 0.05) sync("roll", Math.max(-17, Math.min(17, (r2-l2)*17)), "roll-val", v => `${v.toFixed(1)}°`);
 }
+
+// -----------------------------------------------------------------------
+// Log panel
+// -----------------------------------------------------------------------
+
+let _logSeen = new Set();   // dedup lines already rendered
+
+function appendLogs(lines) {
+  const container = document.getElementById("log-lines");
+  let added = false;
+  for (const line of lines) {
+    if (_logSeen.has(line)) continue;
+    _logSeen.add(line);
+    const el = document.createElement("div");
+    el.textContent = line;
+    if (/ERROR/.test(line))   el.className = "log-line-error";
+    else if (/WARNING/.test(line)) el.className = "log-line-warn";
+    container.appendChild(el);
+    added = true;
+  }
+  if (added) {
+    // Keep at most 200 lines in DOM
+    while (container.childElementCount > 200) container.firstElementChild.remove();
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+document.getElementById("log-toggle").addEventListener("click", () => {
+  const body  = document.getElementById("log-body");
+  const arrow = document.getElementById("log-toggle-arrow");
+  const open  = !body.classList.contains("hidden");
+  body.classList.toggle("hidden", open);
+  arrow.textContent = open ? "▶" : "▼";
+  document.getElementById("log-toggle").setAttribute("aria-expanded", String(!open));
+  if (!open) document.getElementById("log-lines").scrollTop = document.getElementById("log-lines").scrollHeight;
+});
+
+document.getElementById("log-copy").addEventListener("click", () => {
+  const lines = document.getElementById("log-lines");
+  const text  = Array.from(lines.children).map(el => el.textContent).join("\n");
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById("log-copy");
+    btn.textContent = "copied!";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "copy"; btn.classList.remove("copied"); }, 1500);
+  }).catch(() => {
+    // Fallback: select all text in the log box
+    const range = document.createRange();
+    range.selectNodeContents(lines);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  });
+});
+
+document.getElementById("log-clear").addEventListener("click", () => {
+  document.getElementById("log-lines").innerHTML = "";
+  _logSeen.clear();
+});
 
 // -----------------------------------------------------------------------
 // Boot

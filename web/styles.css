@@ -85,6 +85,21 @@ header {
 /* Badge SIT state */
 .badge.sit { color: #f5c200; border-color: #f5c200; }
 
+/* Walk backend chip: small, muted; brightens when a custom gait is live */
+.backend-chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--muted, #7a8290);
+  opacity: 0.7;
+}
+.backend-chip.custom   { color: var(--walk); border-color: var(--walk); }
+.backend-chip.mobility { color: #f5c200;    border-color: #f5c200; }
+.backend-chip.live     { opacity: 1; box-shadow: 0 0 6px var(--walk); }
+
 .help-link {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 50%;
@@ -451,6 +466,64 @@ input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
   .joystick-zone { width: 130px; height: 130px; }
   .keys-hint { display: none; }
 }
+
+/* ---- Log panel ---- */
+.log-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.log-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 2px;
+  font-weight: 700;
+}
+.log-toggle:hover { color: var(--text); }
+.log-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+}
+.log-body.hidden { display: none; }
+.log-lines {
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-line-warn  { color: #fbbf24; }
+.log-line-error { color: var(--danger); }
+.log-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.log-copy, .log-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+.log-copy:hover  { border-color: var(--accent); color: var(--accent); }
+.log-clear:hover { border-color: var(--danger);  color: var(--danger); }
+.log-copy.copied { border-color: var(--walk); color: var(--walk); }
 
 /* ---- Neutral pose button ---- */
 .pose-neutral-row {

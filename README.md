@@ -8,9 +8,32 @@ The full interactive setup guide is also served at **http://localhost:8000/setup
 ## What makes this different
 
 Standard Spot controllers reset the body to perfectly upright before walking.
-Walkie uses `BodyControlParams.base_offset_rt_footprint` — a constant SE3Trajectory
-offset in the footprint frame — so the body holds your pitch/roll/height through
-the full gait cycle. Set the pose sliders, hit Walk, and the personality comes with it.
+Walkie holds your pitch **and** roll through the full gait cycle, so the body
+keeps its personality while stepping. Set the pose sliders, hit Walk, and the
+attitude comes with it.
+
+### Walk backends
+
+The mobility velocity path (`synchro_velocity_command` + `BodyControlParams`)
+holds pitch and height while stepping, but Spot's balancer reserves roll for
+dynamic balance and washes out a commanded roll. To hold roll too, Walkie drives
+walking with a **Custom Gait** choreography (Boston Dynamics' Choreography API),
+which carries a live body rotation offset through the gait.
+
+Set the backend at the top of `server/spot_client.py`:
+
+```python
+WALK_BACKEND = "custom_gait"   # "custom_gait" | "mobility"
+```
+
+- `custom_gait` (default) — holds pitch + roll while walking. **Requires a
+  choreography license on the robot** (checked at startup; the server fails fast
+  with a clear message if it is missing). Driven via `server/custom_gait.py`.
+- `mobility` — the legacy velocity path. Holds pitch only; roll washes out.
+  Kept as a known-good fallback and for comparison.
+
+The active backend is shown as a chip in the header (`CGAIT●` when a custom gait
+is live, `MOBILITY` otherwise) and in the `walk_backend` status field.
 
 ---
 
@@ -68,9 +91,16 @@ Expected output:
 ```
 INFO  Connecting to Spot at 192.168.80.3
 INFO  Authenticated and time-synced
-INFO  Robot standing — starting command loop
+INFO  Custom Gait preflight OK: choreography license enabled, client ready
+INFO  ============================================================
+INFO  SPOT READY — walk backend: custom_gait
+INFO  ============================================================
 INFO  Uvicorn running on http://0.0.0.0:8000
 ```
+
+If the robot has no choreography license, the server stops at startup with:
+`Choreography license is NOT enabled on this robot...`. Either install a
+license or set `WALK_BACKEND = "mobility"` in `server/spot_client.py`.
 
 ### 6. Open the controller
 
@@ -107,6 +137,10 @@ Hit **http://localhost:8000/setup** for the full interactive guide.
 - **Keepalive**: robot does a controlled motors-off if server goes silent for 30 s.
 - **Command timeout**: each velocity command expires in 200 ms — robot stops if the loop stalls.
 - All inputs are server-side clamped: ±28° pitch, ±17° roll, −10/+15 cm height.
+- **In custom-gait walk**, body offsets are additionally clamped tighter (±14° pitch,
+  ±11° roll) and to the robot's live gait limits, since offsets carried through a
+  step cycle have their own stability bounds. Transitions stop the gait before
+  sitting or standing, so choreography and the mobility path never run at once.
 
 ---
 
@@ -121,6 +155,10 @@ Hit **http://localhost:8000/setup** for the full interactive guide.
 **Disconnected dot** — Check you are on Spot's WiFi (`ping 192.168.80.3`), not your home network.
 
 **Body pose resets while walking** — Confirm Walk mode is active (green badge). Stand mode uses a separate command path.
+
+**`Choreography license is NOT enabled`** — The robot lacks a choreography license, required by the `custom_gait` backend. Install one, or set `WALK_BACKEND = "mobility"` in `server/spot_client.py` (roll will not hold while walking).
+
+**Roll doesn't hold while walking** — Check the header chip reads `CGAIT●` (custom gait live). If it reads `MOBILITY`, switch `WALK_BACKEND` to `custom_gait`. Watch the server log for `ROLL DRIFT` warnings.
 
 ---
 

@@ -14,6 +14,7 @@
       <div class="brand">SPOT</div>
       <div id="conn-indicator" class="indicator disconnected">●</div>
       <div id="mode-badge" class="badge stand">STAND</div>
+      <div id="backend-chip" class="backend-chip" title="Active walk backend">--</div>
       <button id="conn-btn" class="conn-btn disconnected">Connect</button>
       <a href="/setup" class="help-link" title="Setup guide">?</a>
       <button id="estop-btn" class="estop-btn">E-STOP</button>
@@ -143,6 +144,21 @@
       <button id="sit-btn" class="mode-btn sit-btn">Sit ↓</button>
       <button id="walk-btn" class="mode-btn">Walk</button>
     </div>
+
+    <!-- Server log panel -->
+    <section class="log-panel" id="log-panel">
+      <button class="log-toggle" id="log-toggle" aria-expanded="true">
+        <span class="card-title" style="margin:0">LOGS</span>
+        <span id="log-toggle-arrow">▼</span>
+      </button>
+      <div class="log-body" id="log-body">
+        <div class="log-lines" id="log-lines"></div>
+        <div class="log-actions">
+          <button class="log-copy" id="log-copy">copy</button>
+          <button class="log-clear" id="log-clear">clear</button>
+        </div>
+      </div>
+    </section>
 
     <!-- Joystick area -->
     <div class="joystick-row">
