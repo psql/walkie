@@ -1,5 +1,5 @@
 """
-Custom Gait walker — drives Spot with a Choreography Custom Gait so that a
+Custom Gait walker: drives Spot with a Choreography Custom Gait so that a
 commanded body pitch AND roll are held through the step cycle.
 
 Why this exists: the standard mobility velocity path (synchro_velocity_command +

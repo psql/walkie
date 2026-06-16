@@ -176,7 +176,7 @@ class SpotController:
 
         blocking_stand(self._command_client, timeout_sec=10)
         logger.info("=" * 60)
-        logger.info(f"SPOT READY — walk backend: {WALK_BACKEND}")
+        logger.info(f"SPOT READY - walk backend: {WALK_BACKEND}")
         logger.info("=" * 60)
 
         self._running = True
