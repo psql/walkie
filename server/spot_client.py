@@ -34,10 +34,15 @@ from bosdyn.client.frame_helpers import (
     GRAV_ALIGNED_BODY_FRAME_NAME,
 )
 from bosdyn.client.robot_state import RobotStateClient
-from google.protobuf.duration_pb2 import Duration
-from google.protobuf.timestamp_pb2 import Timestamp
+
+from custom_gait import CustomGaitWalker
 
 logger = logging.getLogger(__name__)
+
+# Walk backend: "custom_gait" holds pitch AND roll through the step cycle via the
+# Choreography Custom Gait paradigm; "mobility" is the legacy velocity-command path
+# (pitch holds, roll washes out under the balancer) kept as a known-good fallback.
+WALK_BACKEND = "custom_gait"   # "custom_gait" | "mobility"
 
 # Safety limits
 MAX_VX = 1.5        # m/s forward/back
@@ -107,6 +112,7 @@ class SpotController:
         self._state_client: Optional[RobotStateClient] = None
         self._lease_client: Optional[LeaseClient] = None
         self._last_robot_state = None   # cached by get_full_status, read by diagnostics
+        self._walker: Optional[CustomGaitWalker] = None   # Custom Gait backend (None until setup)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -162,8 +168,16 @@ class SpotController:
         else:
             logger.info("Motors already on")
 
+        # Custom Gait preflight: register + verify choreography license. Fail fast
+        # with a clear log line if it is missing (unless using the mobility backend).
+        if WALK_BACKEND == "custom_gait":
+            self._walker = CustomGaitWalker(self.robot, self._command_client)
+            self._walker.setup(self.sdk)
+
         blocking_stand(self._command_client, timeout_sec=10)
-        logger.info("Robot standing — starting command loop")
+        logger.info("=" * 60)
+        logger.info(f"SPOT READY — walk backend: {WALK_BACKEND}")
+        logger.info("=" * 60)
 
         self._running = True
         with self._lock:
@@ -180,6 +194,14 @@ class SpotController:
         self._running = False
         with self._lock:
             self.state.frozen = True
+
+        # End any running gait before sitting so we never sit straight from a
+        # running choreography.
+        if self._walker and self._walker.is_running:
+            try:
+                self._walker.stop()
+            except Exception:
+                self._walker.mark_stopped()
 
         if self._command_client:
             try:
@@ -209,6 +231,11 @@ class SpotController:
             self._estop_keepalive.stop()
         with self._lock:
             self.state.frozen = True
+        # Power is cut so any running gait is physically halted; clear its state
+        # (without a graceful stop, which could not land a command anyway) so a
+        # later walk starts cleanly. The frozen flag short-circuits steering ticks.
+        if self._walker:
+            self._walker.mark_stopped()
         logger.warning("E-STOP triggered")
 
     # ------------------------------------------------------------------
@@ -266,47 +293,61 @@ class SpotController:
 
     def _build_body_control(self, pitch: float, roll: float, yaw: float, height: float):
         """
-        Build a BodyControlParams holding the body at (pitch, roll, yaw, height)
-        relative to the footprint frame.
+        Build BodyControlParams using base_offset_rt_footprint.
 
-        The trajectory point is placed 0.5 s ahead of now so the locomotion
-        controller always has a live future target.  The SDK auto-converts
-        reference_time from local time to robot time before the gRPC call.
+        Matches the official SDK mobility_params() pattern exactly: a single
+        SE3TrajectoryPoint with NO time_since_reference and NO reference_time.
+        Setting those fields places the point in the future, causing the robot to
+        discard the rotation entirely — which was the root cause of the roll/pitch
+        not being applied during walk mode.
         """
-        w, x, y, z = _euler_to_quaternion(roll, pitch, yaw)
-
-        point = trajectory_pb2.SE3TrajectoryPoint()
-        point.pose.CopyFrom(
-            geometry_pb2.SE3Pose(
-                position=geometry_pb2.Vec3(x=0.0, y=0.0, z=height),
-                rotation=geometry_pb2.Quaternion(w=w, x=x, y=y, z=z),
-            )
+        rotation = bosdyn.geometry.EulerZXY(
+            yaw=yaw, roll=roll, pitch=pitch
+        ).to_quaternion()
+        pose = geometry_pb2.SE3Pose(
+            position=geometry_pb2.Vec3(z=height),
+            rotation=rotation,
         )
-        point.time_since_reference.CopyFrom(Duration(seconds=0, nanos=500_000_000))
-
-        now = time.time()
-        traj = trajectory_pb2.SE3Trajectory()
-        traj.reference_time.CopyFrom(Timestamp(
-            seconds=int(now),
-            nanos=int((now % 1) * 1e9),
-        ))
-        traj.ang_interpolation = trajectory_pb2.ANG_INTERP_LINEAR
-        traj.points.append(point)
-
+        traj = trajectory_pb2.SE3Trajectory(
+            points=[trajectory_pb2.SE3TrajectoryPoint(pose=pose)]
+        )
         return spot_command_pb2.BodyControlParams(base_offset_rt_footprint=traj)
 
-    def _build_mobility_params(self, s: ControlState) -> spot_command_pb2.MobilityParams:
+    def _build_mobility_params(self, s: ControlState, log_this: bool = False) -> spot_command_pb2.MobilityParams:
         body_control = self._build_body_control(s.pitch, s.roll, s.yaw_offset, s.height)
-        # Use crawl gait (3 feet always planted) when any pose offset is active.
-        # Crawl's stable base lets the body-control constraint dominate over the
-        # locomotion planner's balance compensation, which in trot gait can temporarily
-        # override the body pose during the single-support phase.
         has_pose = abs(s.pitch) > 0.01 or abs(s.roll) > 0.01 or abs(s.height) > 0.005
         hint = spot_command_pb2.HINT_CRAWL if has_pose else spot_command_pb2.HINT_AUTO
-        return spot_command_pb2.MobilityParams(
+        params = spot_command_pb2.MobilityParams(
             body_control=body_control,
             locomotion_hint=hint,
         )
+        if log_this:
+            # Read back from proto to confirm fields were set correctly
+            bc = params.body_control
+            rs = bc.rotation_setting
+            rs_name = {0: "UNKNOWN", 1: "OFFSET", 2: "ABSOLUTE"}.get(rs, str(rs))
+            hint_name = {0: "UNKNOWN", 1: "AUTO", 2: "TROT", 3: "SPEED_SELECT_TROT",
+                         4: "CRAWL", 5: "AMBLE", 6: "SPEED_SELECT_AMBLE", 7: "JOG",
+                         8: "HOP", 10: "SPEED_SELECT_CRAWL"}.get(hint, str(hint))
+            which = bc.WhichOneof("param")
+            if which == "body_pose":
+                q = bc.body_pose.base_offset_rt_root.points[0].pose.rotation
+                frame = bc.body_pose.root_frame_name
+            elif which == "base_offset_rt_footprint":
+                pts = bc.base_offset_rt_footprint.points
+                q = pts[0].pose.rotation if pts else None
+                tsref = pts[0].time_since_reference if pts else None
+                frame = f"footprint  tsr={tsref.seconds if tsref else 'none'}s"
+            else:
+                q = None
+                frame = "NONE — no param set!"
+            q_str = f"w{q.w:+.4f} x{q.x:+.4f} y{q.y:+.4f} z{q.z:+.4f}" if q else "N/A"
+            logger.info(
+                f"PROTO  param={which}  frame={frame}"
+                f"  rot_setting={rs}({rs_name})  hint={hint}({hint_name})"
+                f"  q={q_str}"
+            )
+        return params
 
     def _actual_body_tilt(self):
         """Return (pitch_rad, roll_rad) of actual body from latest cached robot state.
@@ -330,46 +371,92 @@ class SpotController:
             return None, None
 
     def _log_pose_diagnostic(self, s: ControlState):
-        """Emit one structured log line: commanded vs actual pitch/roll + error."""
+        """Three log lines per cycle: input state, proto params, actual vs commanded."""
         mode = "WALK" if s.walking else "SIT" if s.sitting else "STAND"
         has_pose = abs(s.pitch) > 0.01 or abs(s.roll) > 0.01 or abs(s.height) > 0.005
-        gait = "CRAWL" if (s.walking and has_pose) else "AUTO " if s.walking else "---- "
+        if s.walking and self._use_custom_gait():
+            running = self._walker.is_running
+            gait = f"CGAIT{'+' if running else '-'}"   # + = gait running, - = starting
+        elif s.walking:
+            gait = "CRAWL" if has_pose else "AUTO"     # legacy mobility backend
+        else:
+            gait = "----"
 
         cmd_p = math.degrees(s.pitch)
         cmd_r = math.degrees(s.roll)
         cmd_h = s.height * 100
 
+        # Line 1 — what the controller state currently holds (sourced from WS input)
+        logger.info(
+            f"[{mode}/{gait}] STATE  pitch={cmd_p:+6.1f}°  roll={cmd_r:+6.1f}°"
+            f"  yaw={math.degrees(s.yaw_offset):+5.1f}°  h={cmd_h:+4.1f}cm"
+            f"  vx={s.vx:+.2f}  vy={s.vy:+.2f}  vrot={s.v_rot:+.2f}"
+        )
+        # (PROTO line already emitted by _send_command → _build_mobility_params)
+
+        # Line 2 — actual body tilt from robot state
         actual_p, actual_r = self._actual_body_tilt()
         if actual_p is not None:
             act_p = math.degrees(actual_p)
             act_r = math.degrees(actual_r)
             err_p = cmd_p - act_p
             err_r = cmd_r - act_r
-            actual_str = (f"actual pitch={act_p:+5.1f}° roll={act_r:+5.1f}°"
-                          f"  err p={err_p:+5.1f}° r={err_r:+5.1f}°")
+            logger.info(
+                f"[{mode}/{gait}] ACTUAL pitch={act_p:+6.1f}°  roll={act_r:+6.1f}°"
+                f"  err_p={err_p:+5.1f}°  err_r={err_r:+5.1f}°"
+            )
+            if s.walking and abs(cmd_r) > 2.0 and abs(err_r) > 4.0:
+                logger.warning(
+                    f"ROLL DRIFT [{gait}]  cmd={cmd_r:+.1f}°  actual={act_r:+.1f}°"
+                    f"  err={err_r:+.1f}°"
+                )
+            if s.walking and abs(cmd_p) > 2.0 and abs(err_p) > 4.0:
+                logger.warning(
+                    f"PITCH DRIFT [{gait}]  cmd={cmd_p:+.1f}°  actual={act_p:+.1f}°"
+                    f"  err={err_p:+.1f}°"
+                )
         else:
-            actual_str = "actual=unavailable (no state yet)"
+            logger.warning(f"[{mode}/{gait}] ACTUAL unavailable — no robot state yet")
 
-        logger.info(
-            f"[{mode}/{gait}] cmd pitch={cmd_p:+5.1f}° roll={cmd_r:+5.1f}° h={cmd_h:+4.1f}cm"
-            f"  |  {actual_str}"
-        )
+    def _use_custom_gait(self) -> bool:
+        return WALK_BACKEND == "custom_gait" and self._walker is not None
 
-    def _send_command(self, s: ControlState):
+    def _send_command(self, s: ControlState, log_this: bool = False):
         end_time = time.time() + COMMAND_PERIOD * COMMAND_TIMEOUT_FACTOR
 
+        # Custom Gait and the mobility velocity command must never run concurrently
+        # against the body lease, so every non-walk branch first stops any running
+        # gait before issuing a synchro command.
         if s.sitting:
-            # Sit takes priority — loop keeps sending so it can't be overridden
+            if self._walker and self._walker.is_running:
+                self._walker.stop()   # walk -> sit: end gait, then sit
             cmd = RobotCommandBuilder.synchro_sit_command()
+            self._command_client.robot_command(command=cmd, end_time_secs=end_time)
+
+        elif s.walking and self._use_custom_gait():
+            # Drive Custom Gait: ensure it is running, then push steering + live pose.
+            # Do NOT send synchro_velocity_command on this path.
+            if not self._walker.is_running:
+                self._walker.start()
+            self._walker.steer(
+                vx=s.vx, vy=s.vy, v_rot=s.v_rot,
+                pitch=s.pitch, roll=s.roll, yaw=s.yaw_offset, height=s.height,
+            )
+
         elif s.walking:
-            params = self._build_mobility_params(s)
+            # Legacy mobility backend (roll washes out under the balancer).
+            params = self._build_mobility_params(s, log_this=log_this)
             cmd = RobotCommandBuilder.synchro_velocity_command(
                 v_x=s.vx,
                 v_y=s.vy,
                 v_rot=s.v_rot,
                 params=params,
             )
+            self._command_client.robot_command(command=cmd, end_time_secs=end_time)
+
         else:
+            if self._walker and self._walker.is_running:
+                self._walker.stop()   # walk -> stand: end gait before standing
             footprint_R_body = bosdyn.geometry.EulerZXY(
                 yaw=s.yaw_offset, roll=s.roll, pitch=s.pitch
             )
@@ -377,8 +464,7 @@ class SpotController:
                 footprint_R_body=footprint_R_body,
                 body_height=s.height,
             )
-
-        self._command_client.robot_command(command=cmd, end_time_secs=end_time)
+            self._command_client.robot_command(command=cmd, end_time_secs=end_time)
 
     # ------------------------------------------------------------------
     # Command loop (background thread)
@@ -392,12 +478,13 @@ class SpotController:
                 with self._lock:
                     s = ControlState(**self.state.__dict__)
                 if not s.frozen:
-                    self._send_command(s)
+                    log_now = (loop_count % 5 == 0)   # 4 Hz diagnostic
+                    if log_now:
+                        self._log_pose_diagnostic(s)   # STATE + ACTUAL first
+                    self._send_command(s, log_this=log_now)  # PROTO after
                     loop_count += 1
-                    if loop_count % 10 == 0:   # log at ~2 Hz
-                        self._log_pose_diagnostic(s)
             except Exception as e:
-                logger.error(f"Command loop error: {e}")
+                logger.error(f"Command loop error: {e}", exc_info=True)
 
             elapsed = time.monotonic() - loop_start
             sleep_time = COMMAND_PERIOD - elapsed
@@ -414,6 +501,8 @@ class SpotController:
             s = self.state
             return {
                 "connected": True,
+                "walk_backend": WALK_BACKEND,
+                "gait_running": bool(self._walker and self._walker.is_running),
                 "walking": s.walking,
                 "sitting": s.sitting,
                 "frozen": s.frozen,
