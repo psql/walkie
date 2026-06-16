@@ -35,6 +35,7 @@ from bosdyn.client.frame_helpers import (
 )
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.image import ImageClient, build_image_request
+from bosdyn.client.license import LicenseClient
 from bosdyn.api import image_pb2
 
 from custom_gait import CustomGaitWalker
@@ -123,6 +124,7 @@ class SpotController:
         self._state_client: Optional[RobotStateClient] = None
         self._lease_client: Optional[LeaseClient] = None
         self._image_client: Optional[ImageClient] = None   # base-unit cameras (no lease needed)
+        self._license_client: Optional[LicenseClient] = None   # passive license read (no lease)
         self._last_robot_state = None   # cached by get_full_status, read by diagnostics
         self._walker: Optional[CustomGaitWalker] = None   # Custom Gait backend (None until setup)
 
@@ -637,3 +639,34 @@ class SpotController:
         except Exception as e:
             logger.debug(f"Image grab failed for {source}: {e}")
             return None
+
+    # ------------------------------------------------------------------
+    # License (passive read; no lease, never moves the robot)
+    # ------------------------------------------------------------------
+
+    def get_license(self) -> dict:
+        """Read the robot's installed license as a structured dict for the UI.
+
+        A passive query: no lease, no E-Stop, no power-on. The licensed_features
+        list holds the exact feature-code strings (e.g. for Joint Level Control).
+        Returns {"error": ...} on failure rather than raising.
+        """
+        if not self._license_client:
+            try:
+                self._license_client = self.robot.ensure_client(LicenseClient.default_service_name)
+            except Exception as e:
+                return {"error": f"license service unavailable: {e}"}
+        try:
+            info = self._license_client.get_license_info()
+        except Exception as e:
+            return {"error": str(e)}
+
+        nvb, nva = info.not_valid_before, info.not_valid_after
+        return {
+            "status": info.Status.Name(info.status),
+            "id": info.id,
+            "robot_serial": info.robot_serial,
+            "not_valid_before": nvb.ToDatetime().isoformat() if nvb.seconds else None,
+            "not_valid_after": nva.ToDatetime().isoformat() if nva.seconds else None,
+            "licensed_features": list(info.licensed_features),
+        }

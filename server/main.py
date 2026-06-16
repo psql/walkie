@@ -278,6 +278,14 @@ async def status():
     return await _status_payload()
 
 
+@app.get("/license")
+async def license_info():
+    # Passive read of the robot's installed license. Needs a connected robot.
+    if not spot or not spot.robot_connected:
+        return JSONResponse({"error": "robot offline"}, status_code=503)
+    return await asyncio.to_thread(spot.get_license)
+
+
 # ------------------------------------------------------------------
 # Camera feeds: base-unit cameras republished as MJPEG. Lease-free and
 # decoupled from the control loop; each open feed polls frames in a worker

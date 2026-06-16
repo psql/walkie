@@ -606,6 +606,57 @@ document.querySelectorAll(".cam-img").forEach(img => {
 });
 
 // -----------------------------------------------------------------------
+// Robot license: passive read on demand, shown in a modal. The point is to
+// read the exact feature codes (e.g. joint control) off the robot.
+// -----------------------------------------------------------------------
+
+const esc = s => String(s).replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function renderLicense(data, ok) {
+  const body = document.getElementById("license-body");
+  if (!ok || !data || data.error) {
+    body.innerHTML = `<div class="lic-error">${esc((data && data.error) || "request failed")}</div>`;
+    return;
+  }
+  const feats = data.licensed_features || [];
+  const rows = feats.length
+    ? feats.map(f => `<div class="lic-feat${/joint/i.test(f) ? " hi" : ""}">${esc(f)}</div>`).join("")
+    : `<div class="lic-feat">(none reported)</div>`;
+  body.innerHTML = `
+    <div class="lic-meta">
+      <div><span>Status</span>${esc(data.status || "-")}</div>
+      <div><span>ID</span>${esc(data.id || "-")}</div>
+      <div><span>Serial</span>${esc(data.robot_serial || "-")}</div>
+      <div><span>Valid until</span>${esc(data.not_valid_after || "-")}</div>
+    </div>
+    <div class="lic-feats-title">LICENSED FEATURES (${feats.length})</div>
+    <div class="lic-feats">${rows}</div>`;
+}
+
+async function fetchLicense() {
+  const body = document.getElementById("license-body");
+  body.innerHTML = `<div class="lic-loading">Reading license...</div>`;
+  document.getElementById("license-modal").classList.remove("hidden");
+  try {
+    const res = await fetch("/license");
+    renderLicense(await res.json(), res.ok);
+  } catch (e) {
+    renderLicense({ error: "could not reach server: " + e }, false);
+  }
+}
+
+function closeLicense() {
+  document.getElementById("license-modal").classList.add("hidden");
+}
+
+document.getElementById("license-btn").addEventListener("click", fetchLicense);
+document.getElementById("license-close").addEventListener("click", closeLicense);
+document.getElementById("license-modal").addEventListener("click", e => {
+  if (e.target.id === "license-modal") closeLicense();   // click backdrop to close
+});
+
+// -----------------------------------------------------------------------
 // Boot
 // -----------------------------------------------------------------------
 

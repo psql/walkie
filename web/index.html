@@ -113,6 +113,8 @@
 
         <!-- Fault display -->
         <div id="fault-box" class="fault-box hidden"></div>
+
+        <button id="license-btn" class="license-btn">Check License</button>
       </div>
     </div>
 
@@ -215,6 +217,17 @@
     <!-- Keyboard cheatsheet (desktop) -->
     <div class="keys-hint">
       WASD move · QE turn · ↑↓ pitch · ←→ roll · +- height · Space walk · X sit · Esc E-stop
+    </div>
+
+    <!-- Robot license modal (read-only passive query) -->
+    <div id="license-modal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <span class="card-title" style="margin:0">ROBOT LICENSE</span>
+          <button id="license-close" class="modal-close" aria-label="Close">×</button>
+        </div>
+        <div id="license-body" class="license-body"></div>
+      </div>
     </div>
 
   </div>
