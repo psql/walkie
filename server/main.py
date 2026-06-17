@@ -293,6 +293,17 @@ async def status():
     return await _status_payload()
 
 
+@app.post("/recover")
+async def recover_control():
+    # Operator-triggered: clear clearable faults, power on, stand. Needs the robot
+    # reachable (read-only connected); runs in a worker thread (power-on can take
+    # ~20s). Serialized server-side against the auto-retry loop.
+    if not spot or not spot.robot_connected:
+        return JSONResponse({"ok": False, "error": "robot not reachable"}, status_code=503)
+    result = await asyncio.to_thread(spot.recover_control)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 502)
+
+
 @app.get("/license")
 async def license_info():
     # A license read is passive: it only needs authentication, NOT a lease,

@@ -670,6 +670,26 @@ function closeLicense() {
   document.getElementById("license-modal").classList.add("hidden");
 }
 
+// Operator recovery: clear clearable faults + power on + stand. Power-on can take
+// ~20s, so disable the button and show progress; the banner/chip update via status.
+async function recoverControl() {
+  const btn = document.getElementById("recover-btn");
+  const orig = btn.dataset.label || btn.textContent;
+  btn.dataset.label = orig;
+  btn.disabled = true;
+  btn.textContent = "Working (up to ~20s)...";
+  try {
+    const res = await fetch("/recover", { method: "POST" });
+    const data = await res.json();
+    btn.textContent = data.ok ? "Recovered ✓" : "Failed (see logs)";
+  } catch (e) {
+    btn.textContent = "Error (see logs)";
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = btn.dataset.label; }, 3000);
+  }
+}
+document.getElementById("recover-btn").addEventListener("click", recoverControl);
+
 document.getElementById("license-btn").addEventListener("click", fetchLicense);
 document.getElementById("license-close").addEventListener("click", closeLicense);
 document.getElementById("license-modal").addEventListener("click", e => {

@@ -668,6 +668,24 @@ input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
 }
 .license-btn:hover { border-color: var(--accent); color: var(--accent); }
 
+.recover-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: rgba(245, 194, 0, 0.10);
+  color: #f5c200;
+  border: 1px solid #f5c200;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.recover-btn:hover { opacity: 0.85; }
+.recover-btn:disabled { opacity: 0.5; cursor: default; }
+
 .modal {
   position: fixed;
   inset: 0;

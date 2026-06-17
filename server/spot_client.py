@@ -164,6 +164,7 @@ class SpotController:
         #   (e.g. power-on) fails.
         self.robot_connected = False
         self.control_ready = False
+        self._control_lock = threading.Lock()   # serialize control bring-up / recovery
         self._running = False
         self._command_thread: Optional[threading.Thread] = None
         self._lease_keepalive: Optional[LeaseKeepAlive] = None
@@ -223,11 +224,33 @@ class SpotController:
     def bring_up_control(self):
         """Acquire lease + E-Stop, clear clearable faults, power on, stand, and start
         the command loop. Separate from connect() so a failure here (e.g. a power
-        fault) leaves cameras/license/telemetry working. Idempotent: each sub-step is
-        skipped if already done, so retries do not stack keepalive/E-Stop/lease threads."""
-        if self.control_ready:
-            return
+        fault) leaves cameras/license/telemetry working. Idempotent and serialized by
+        _control_lock, so the startup retry loop and the manual recover button cannot
+        run it concurrently."""
+        with self._control_lock:
+            if self.control_ready:
+                return
+            self._ensure_control_infra()
+            self._power_and_stand()
 
+    def recover_control(self) -> dict:
+        """Operator-triggered recovery: clear faults, power on, stand. Forced (does
+        not early-return when control_ready) so it can recover after a mid-session
+        fault or motors-off. Returns a result dict instead of raising."""
+        if not self.robot_connected:
+            return {"ok": False, "error": "robot not connected"}
+        with self._control_lock:
+            try:
+                self._ensure_control_infra()
+                self._power_and_stand()
+                return {"ok": True, "control_ready": self.control_ready}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+
+    def _ensure_control_infra(self):
+        """Idempotently set up the keepalive policy, E-Stop, and lease. Safe to call
+        repeatedly: each sub-step is skipped if already done, so retries do not stack
+        keepalive/E-Stop/lease threads."""
         # Clear any keepalive policies from the tablet (these can block power-on),
         # then register ours: controlled sit + motors off after 30 s of no check-in.
         if not self._policy_keepalive:
@@ -261,6 +284,9 @@ class SpotController:
                 self._lease_client, must_acquire=False, return_at_exit=True
             )
 
+    def _power_and_stand(self):
+        """Clear clearable faults, power on, stand, and ensure the command loop runs.
+        Raises on power-on failure (after logging the FaultState)."""
         # Clear any clearable behavior faults (e.g. from a prior fall or hard stop),
         # which otherwise make power-on fail with a FaultedError, then power on.
         if not self.robot.is_powered_on():
