@@ -188,10 +188,12 @@ async def ws_control(websocket: WebSocket):
     connected_clients.add(websocket)
     logger.info(f"Controller connected: {websocket.client}. Active: {len(connected_clients)}")
 
-    # Send current state immediately so UI can sync (works even if robot is offline)
+    # Send current state immediately so UI can sync (works even if robot is offline).
+    # Send the full log buffer here so startup lines (e.g. a power-on fault logged
+    # before any browser connected) are visible without digging in the terminal.
     try:
         status = await _status_payload()
-        await websocket.send_text(json.dumps({"event": "status", **status, "log_lines": log_buffer.recent(50)}))
+        await websocket.send_text(json.dumps({"event": "status", **status, "log_lines": log_buffer.recent(300)}))
     except Exception:
         pass
 

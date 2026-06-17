@@ -196,6 +196,17 @@ function updateStatus(s) {
   // Robot link state (server to robot), distinct from the browser to server dot
   if ("robot_connected" in s) setRobotStatus(s.robot_connected, s.control_ready, s.robot_error);
 
+  // Prominent banner for the current robot error (e.g. power-on fault). Shows
+  // whenever control is not ready and the server reported a reason; the full
+  // detail (FaultState) is in the LOGS panel below.
+  const banner = document.getElementById("robot-banner");
+  if (s.robot_error && !s.control_ready) {
+    banner.textContent = "⚠ Robot control not ready: " + s.robot_error;
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+
   // Sync mode badge with server state if it differs (e.g. after reconnect)
   if (s.sitting && state.mode !== "sit")   setMode("sit");
   else if (s.walking && state.mode !== "walk") setMode("walk");

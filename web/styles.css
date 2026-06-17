@@ -114,6 +114,21 @@ header {
 .robot-status.degraded { color: #f5c200;       border-color: #f5c200; }
 .robot-status.offline  { color: var(--danger); border-color: var(--danger); }
 
+/* Prominent robot error banner */
+.robot-banner {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border: 1px solid #f5c200;
+  background: rgba(245, 194, 0, 0.12);
+  color: #f5c200;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.robot-banner.hidden { display: none; }
+
 .help-link {
   display: flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 50%;
