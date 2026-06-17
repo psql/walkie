@@ -164,6 +164,9 @@ class SpotController:
         #   (e.g. power-on) fails.
         self.robot_connected = False
         self.control_ready = False
+        # Effective walk backend for this session. Starts at the configured default
+        # but falls back to "mobility" if the robot lacks the choreography license.
+        self.walk_backend = WALK_BACKEND
         self._control_lock = threading.Lock()   # serialize control bring-up / recovery
         self._running = False
         self._command_thread: Optional[threading.Thread] = None
@@ -300,14 +303,24 @@ class SpotController:
         else:
             logger.info("Motors already on")
 
-        # Custom Gait preflight: register + verify choreography license.
-        if WALK_BACKEND == "custom_gait" and not self._walker:
-            self._walker = CustomGaitWalker(self.robot, self._command_client)
-            self._walker.setup(self.sdk)
+        # Custom Gait preflight: register + verify choreography license. If the
+        # license is missing this is NOT fatal: fall back to the mobility walk
+        # backend so control still comes up (walk via the standard velocity path).
+        if self.walk_backend == "custom_gait" and not self._walker:
+            try:
+                walker = CustomGaitWalker(self.robot, self._command_client)
+                walker.setup(self.sdk)
+                self._walker = walker
+            except Exception as e:
+                logger.warning(
+                    f"Custom Gait unavailable ({e}). Falling back to the mobility "
+                    "walk backend (pitch holds while walking; roll does not)."
+                )
+                self.walk_backend = "mobility"
 
         blocking_stand(self._command_client, timeout_sec=10)
         logger.info("=" * 60)
-        logger.info(f"CONTROL READY - walk backend: {WALK_BACKEND}")
+        logger.info(f"CONTROL READY - walk backend: {self.walk_backend}")
         logger.info("=" * 60)
 
         if not self._command_thread:
@@ -592,7 +605,7 @@ class SpotController:
             logger.warning(f"[{mode}/{gait}] ACTUAL unavailable — no robot state yet")
 
     def _use_custom_gait(self) -> bool:
-        return WALK_BACKEND == "custom_gait" and self._walker is not None
+        return self.walk_backend == "custom_gait" and self._walker is not None
 
     def _send_command(self, s: ControlState, log_this: bool = False):
         end_time = time.time() + COMMAND_PERIOD * COMMAND_TIMEOUT_FACTOR
@@ -676,7 +689,7 @@ class SpotController:
                 "connected": True,
                 "robot_connected": self.robot_connected,
                 "control_ready": self.control_ready,
-                "walk_backend": WALK_BACKEND,
+                "walk_backend": self.walk_backend,
                 "gait_running": bool(self._walker and self._walker.is_running),
                 "walking": s.walking,
                 "sitting": s.sitting,

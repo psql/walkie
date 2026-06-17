@@ -496,6 +496,35 @@ input[type=range]:active::-webkit-slider-thumb { cursor: grabbing; }
   .keys-hint { display: none; }
 }
 
+/* Wide screens: use the real estate. Controls on the left, big cameras + logs
+   on the right, instead of one narrow scrolling column. */
+@media (min-width: 1024px) {
+  #app {
+    max-width: 1280px;
+    display: grid;
+    grid-template-columns: 440px minmax(0, 1fr);
+    grid-template-areas:
+      "header header"
+      "telem  cam"
+      "pose   cam"
+      "mode   log"
+      "joy    log"
+      "keys   log";
+    align-content: start;
+    column-gap: 16px;
+  }
+  header        { grid-area: header; }
+  .telemetry-row { grid-area: telem; }
+  .pose-panel   { grid-area: pose; }
+  .mode-row     { grid-area: mode; }
+  .joystick-row { grid-area: joy; }
+  .keys-hint    { grid-area: keys; }
+  .camera-panel { grid-area: cam; }
+  .log-panel    { grid-area: log; align-self: stretch; }
+  /* Bigger driver-view tiles when there is room */
+  .cam-tile { min-width: 240px; }
+}
+
 /* ---- Log panel ---- */
 .log-panel {
   background: var(--surface);
