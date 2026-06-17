@@ -18,7 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from spot_client import SpotController
+from spot_client import SpotController, read_license
 
 load_dotenv()
 
@@ -117,24 +117,37 @@ async def _robot_connect_loop():
         logger.error(f"Robot config missing: {spot_error}. Serving UI without robot control.")
         return
 
+    # Stage 1: authenticate + read-only connect (cameras, license, telemetry).
+    # Retry the whole thing until the robot is reachable.
+    controller = SpotController(hostname)
     while True:
-        controller = SpotController(hostname)
         try:
             logger.info(f"Connecting to Spot at {hostname}")
             await asyncio.to_thread(controller.authenticate, username, password)
-            await asyncio.to_thread(controller.setup)
+            await asyncio.to_thread(controller.connect)
             spot = controller
             spot_error = None
-            logger.info("Robot connected and ready")
+            break
+        except Exception as e:
+            spot_error = str(e)
+            logger.error(f"Robot connect failed: {e}. Retrying in {ROBOT_RETRY_S}s.")
+            await asyncio.sleep(ROBOT_RETRY_S)
+
+    # Stage 2: control bring-up (lease/E-Stop/power/stand). Non-fatal: if this
+    # fails (e.g. a power fault), cameras/license/telemetry keep working and we
+    # retry. bring_up_control is idempotent, so retries do not stack threads.
+    while True:
+        try:
+            await asyncio.to_thread(controller.bring_up_control)
+            spot_error = None
+            logger.info("Robot control ready")
             return
         except Exception as e:
             spot_error = str(e)
-            logger.error(f"Robot connection failed: {e}. Retrying in {ROBOT_RETRY_S}s.")
-            # Best-effort teardown so a partially-set-up controller leaks no threads.
-            try:
-                await asyncio.to_thread(controller.shutdown)
-            except Exception:
-                pass
+            logger.error(
+                f"Control bring-up failed: {e}. Cameras/license/telemetry still "
+                f"available; retrying control in {ROBOT_RETRY_S}s."
+            )
             await asyncio.sleep(ROBOT_RETRY_S)
 
 
@@ -280,10 +293,23 @@ async def status():
 
 @app.get("/license")
 async def license_info():
-    # Passive read of the robot's installed license. Needs a connected robot.
-    if not spot or not spot.robot_connected:
-        return JSONResponse({"error": "robot offline"}, status_code=503)
-    return await asyncio.to_thread(spot.get_license)
+    # A license read is passive: it only needs authentication, NOT a lease,
+    # E-Stop, or motor power. Reuse the live control connection if it is up;
+    # otherwise do an independent auth-only read so the license is still
+    # readable before/without full bring-up.
+    if spot and spot.robot_connected:
+        result = await asyncio.to_thread(spot.get_license)
+    else:
+        hostname = os.environ.get("SPOT_HOSTNAME")
+        username = os.environ.get("SPOT_USERNAME", "user")
+        password = os.environ.get("SPOT_PASSWORD")
+        if not hostname or not password:
+            return JSONResponse(
+                {"error": "SPOT_HOSTNAME / SPOT_PASSWORD not set"}, status_code=503
+            )
+        result = await asyncio.to_thread(read_license, hostname, username, password)
+    status_code = 502 if "error" in result else 200
+    return JSONResponse(result, status_code=status_code)
 
 
 # ------------------------------------------------------------------

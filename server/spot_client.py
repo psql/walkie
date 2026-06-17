@@ -85,6 +85,49 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _license_info_to_dict(info) -> dict:
+    """Convert a LicenseInfo proto to a UI-friendly dict. licensed_features holds
+    the exact feature-code strings (e.g. for Joint Level Control)."""
+    nvb, nva = info.not_valid_before, info.not_valid_after
+    return {
+        "status": info.Status.Name(info.status),
+        "id": info.id,
+        "robot_serial": info.robot_serial,
+        "not_valid_before": nvb.ToDatetime().isoformat() if nvb.seconds else None,
+        "not_valid_after": nva.ToDatetime().isoformat() if nva.seconds else None,
+        "licensed_features": list(info.licensed_features),
+    }
+
+
+# A license read is a passive query: it only needs authentication, NOT a lease,
+# E-Stop, or motor power. This standalone path lets the UI read the license even
+# when the full control connection (lease/E-Stop/power/stand) is not up. The
+# authenticated robot is cached so repeat reads skip re-auth.
+_license_robot = None
+_license_lock = threading.Lock()
+
+
+def read_license(hostname: str, username: str, password: str) -> dict:
+    """Read the installed license over a read-only, auth-only connection.
+
+    Never acquires a lease, registers an E-Stop, powers motors, or moves the
+    robot. Returns {"error": ...} on failure rather than raising.
+    """
+    global _license_robot
+    with _license_lock:
+        try:
+            if _license_robot is None:
+                sdk = bosdyn.client.create_standard_sdk("spot-license-read")
+                robot = sdk.create_robot(hostname)
+                robot.authenticate(username, password)   # auth only; no lease/E-Stop/power
+                _license_robot = robot
+            client = _license_robot.ensure_client(LicenseClient.default_service_name)
+            return _license_info_to_dict(client.get_license_info())
+        except Exception as e:
+            _license_robot = None   # drop the cached robot so the next read re-auths
+            return {"error": str(e)}
+
+
 def _euler_to_quaternion(roll: float, pitch: float, yaw: float):
     """ZXY convention (matches SDK EulerZXY used in stand mode) → (w, x, y, z)."""
     cr = math.cos(roll / 2);  sr = math.sin(roll / 2)
@@ -114,7 +157,13 @@ class SpotController:
         self.state = ControlState()
         self._lock = threading.Lock()
 
-        self.robot_connected = False   # True once setup() completes; UI shows this
+        # robot_connected: reachable + authed + read-only clients up (cameras,
+        #   license, telemetry available). control_ready: lease/E-Stop/power/stand
+        #   up and the command loop running (sit/stand/walk available). The two are
+        #   separate so cameras/license/telemetry keep working when control bring-up
+        #   (e.g. power-on) fails.
+        self.robot_connected = False
+        self.control_ready = False
         self._running = False
         self._command_thread: Optional[threading.Thread] = None
         self._lease_keepalive: Optional[LeaseKeepAlive] = None
@@ -123,6 +172,8 @@ class SpotController:
         self._command_client: Optional[RobotCommandClient] = None
         self._state_client: Optional[RobotStateClient] = None
         self._lease_client: Optional[LeaseClient] = None
+        self._estop_client = None
+        self._keepalive_client = None
         self._image_client: Optional[ImageClient] = None   # base-unit cameras (no lease needed)
         self._license_client: Optional[LicenseClient] = None   # passive license read (no lease)
         self._last_robot_state = None   # cached by get_full_status, read by diagnostics
@@ -138,14 +189,23 @@ class SpotController:
         logger.info("Authenticated and time-synced")
 
     def setup(self):
-        """Clear blocking keepalive policies, acquire lease, configure E-stop, power on, stand."""
+        """Read-only connect, then control bring-up. Kept for callers that want the
+        full sequence; the server stages these separately so cameras/license/
+        telemetry stay available even if control bring-up fails."""
+        self.connect()
+        self.bring_up_control()
+
+    def connect(self):
+        """Create the read-only clients: command/state/lease stubs plus image and
+        (lazily) license. Requires only authentication, no lease or power. This is
+        enough for cameras, the license read, and telemetry. Idempotent."""
         self._lease_client = self.robot.ensure_client(LeaseClient.default_service_name)
         self._command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
         self._state_client = self.robot.ensure_client(RobotStateClient.default_service_name)
-        estop_client = self.robot.ensure_client(EstopClient.default_service_name)
+        self._estop_client = self.robot.ensure_client(EstopClient.default_service_name)
+        self._keepalive_client = self.robot.ensure_client(KeepaliveClient.default_service_name)
 
-        # Image client for the base cameras. Lease-free and decoupled from control,
-        # so a failure here must never block setup of the control path.
+        # Image client for the base cameras. Lease-free and decoupled from control.
         try:
             self._image_client = self.robot.ensure_client(ImageClient.default_service_name)
             available = {s.name for s in self._image_client.list_image_sources()}
@@ -157,66 +217,124 @@ class SpotController:
             self._image_client = None
             logger.warning(f"Image client unavailable, cameras disabled: {e}")
 
-        keepalive_client = self.robot.ensure_client(KeepaliveClient.default_service_name)
+        self.robot_connected = True
+        logger.info("Read-only connect complete (cameras, license, telemetry available)")
 
-        # Clear any keepalive policies from the tablet (these can block power-on)
-        remove_all_policies(keepalive_client, attempts=3)
-        logger.info("Cleared existing keepalive policies")
+    def bring_up_control(self):
+        """Acquire lease + E-Stop, clear clearable faults, power on, stand, and start
+        the command loop. Separate from connect() so a failure here (e.g. a power
+        fault) leaves cameras/license/telemetry working. Idempotent: each sub-step is
+        skipped if already done, so retries do not stack keepalive/E-Stop/lease threads."""
+        if self.control_ready:
+            return
 
-        # Register our own policy: controlled sit + motors off after 30 s of no check-in
-        our_policy = Policy()
-        our_policy.name = "spot-controller-web"
-        our_policy.add_controlled_motors_off_action(after=30)
-        self._policy_keepalive = PolicyKeepalive(
-            keepalive_client, our_policy,
-            rpc_interval_seconds=5,
-            remove_policy_on_exit=True,
-        )
-        self._policy_keepalive.__enter__()
-        logger.info("Keepalive policy registered")
+        # Clear any keepalive policies from the tablet (these can block power-on),
+        # then register ours: controlled sit + motors off after 30 s of no check-in.
+        if not self._policy_keepalive:
+            remove_all_policies(self._keepalive_client, attempts=3)
+            logger.info("Cleared existing keepalive policies")
+            our_policy = Policy()
+            our_policy.name = "spot-controller-web"
+            our_policy.add_controlled_motors_off_action(after=30)
+            self._policy_keepalive = PolicyKeepalive(
+                self._keepalive_client, our_policy,
+                rpc_interval_seconds=5,
+                remove_policy_on_exit=True,
+            )
+            self._policy_keepalive.__enter__()
+            logger.info("Keepalive policy registered")
 
         # E-stop: 9 s timeout, check-ins every ~2 s
-        estop_endpoint = EstopEndpoint(
-            client=estop_client,
-            name="spot-controller-web",
-            estop_timeout=9.0,
-        )
-        estop_endpoint.force_simple_setup()
-        self._estop_keepalive = EstopKeepAlive(estop_endpoint)
+        if not self._estop_keepalive:
+            estop_endpoint = EstopEndpoint(
+                client=self._estop_client,
+                name="spot-controller-web",
+                estop_timeout=9.0,
+            )
+            estop_endpoint.force_simple_setup()
+            self._estop_keepalive = EstopKeepAlive(estop_endpoint)
 
         # Take the lease forcefully — works whether or not another client holds it
-        self._lease = self._lease_client.take()
-        self._lease_keepalive = LeaseKeepAlive(
-            self._lease_client, must_acquire=False, return_at_exit=True
-        )
+        if not self._lease_keepalive:
+            self._lease = self._lease_client.take()
+            self._lease_keepalive = LeaseKeepAlive(
+                self._lease_client, must_acquire=False, return_at_exit=True
+            )
 
+        # Clear any clearable behavior faults (e.g. from a prior fall or hard stop),
+        # which otherwise make power-on fail with a FaultedError, then power on.
         if not self.robot.is_powered_on():
-            self.robot.power_on(timeout_sec=20)
+            self._clear_behavior_faults()
+            try:
+                self.robot.power_on(timeout_sec=20)
+            except Exception:
+                self._log_fault_state()
+                raise
             assert self.robot.is_powered_on(), "Motor power failed"
         else:
             logger.info("Motors already on")
 
-        # Custom Gait preflight: register + verify choreography license. Fail fast
-        # with a clear log line if it is missing (unless using the mobility backend).
-        if WALK_BACKEND == "custom_gait":
+        # Custom Gait preflight: register + verify choreography license.
+        if WALK_BACKEND == "custom_gait" and not self._walker:
             self._walker = CustomGaitWalker(self.robot, self._command_client)
             self._walker.setup(self.sdk)
 
         blocking_stand(self._command_client, timeout_sec=10)
         logger.info("=" * 60)
-        logger.info(f"SPOT READY - walk backend: {WALK_BACKEND}")
+        logger.info(f"CONTROL READY - walk backend: {WALK_BACKEND}")
         logger.info("=" * 60)
 
-        self._running = True
-        with self._lock:
-            # Start in stand mode, unfrozen; operator sees the robot standing
-            # and can choose to sit, walk, or pose via the UI
-            self.state.sitting = False
-            self.state.walking = False
-            self.state.frozen = False
-        self._command_thread = threading.Thread(target=self._command_loop, daemon=True)
-        self._command_thread.start()
-        self.robot_connected = True
+        if not self._command_thread:
+            self._running = True
+            with self._lock:
+                # Start in stand mode, unfrozen; operator can sit, walk, or pose.
+                self.state.sitting = False
+                self.state.walking = False
+                self.state.frozen = False
+            self._command_thread = threading.Thread(target=self._command_loop, daemon=True)
+            self._command_thread.start()
+        self.control_ready = True
+
+    def _clear_behavior_faults(self):
+        """Clear any CLEARABLE behavior faults so power-on can proceed. Needs the
+        lease (already held by the time this runs). Best-effort: logs and continues."""
+        try:
+            rs = self._state_client.get_robot_state()
+        except Exception as e:
+            logger.warning(f"Could not read robot state to clear faults: {e}")
+            return
+        faults = rs.behavior_fault_state.faults
+        for bf in faults:
+            cause = bf.Cause.Name(bf.cause).replace("CAUSE_", "")
+            if bf.status == bf.STATUS_CLEARABLE:
+                try:
+                    self._command_client.clear_behavior_fault(behavior_fault_id=bf.behavior_fault_id)
+                    logger.info(f"Cleared behavior fault id={bf.behavior_fault_id} (cause={cause})")
+                except Exception as e:
+                    logger.warning(f"Failed to clear behavior fault id={bf.behavior_fault_id}: {e}")
+            else:
+                logger.warning(f"Behavior fault id={bf.behavior_fault_id} (cause={cause}) is NOT clearable via API")
+
+    def _log_fault_state(self):
+        """Log the robot's current fault state to explain a failed power-on."""
+        try:
+            rs = self._state_client.get_robot_state()
+        except Exception as e:
+            logger.warning(f"Power-on failed and robot state unavailable: {e}")
+            return
+        bfaults = [
+            f"{bf.Cause.Name(bf.cause).replace('CAUSE_', '')}"
+            f"/{bf.Status.Name(bf.status).replace('STATUS_', '')}"
+            for bf in rs.behavior_fault_state.faults
+        ]
+        sfaults = [
+            f.error_message for f in rs.system_fault_state.faults
+            if f.severity >= robot_state_pb2.SystemFault.SEVERITY_WARN
+        ]
+        logger.error(
+            f"Power-on blocked by fault. behavior_faults={bfaults or 'none'}  "
+            f"system_faults={sfaults or 'none'}"
+        )
 
     def shutdown(self):
         """Sit, power off, release everything."""
@@ -531,6 +649,7 @@ class SpotController:
             return {
                 "connected": True,
                 "robot_connected": self.robot_connected,
+                "control_ready": self.control_ready,
                 "walk_backend": WALK_BACKEND,
                 "gait_running": bool(self._walker and self._walker.is_running),
                 "walking": s.walking,
@@ -657,16 +776,6 @@ class SpotController:
             except Exception as e:
                 return {"error": f"license service unavailable: {e}"}
         try:
-            info = self._license_client.get_license_info()
+            return _license_info_to_dict(self._license_client.get_license_info())
         except Exception as e:
             return {"error": str(e)}
-
-        nvb, nva = info.not_valid_before, info.not_valid_after
-        return {
-            "status": info.Status.Name(info.status),
-            "id": info.id,
-            "robot_serial": info.robot_serial,
-            "not_valid_before": nvb.ToDatetime().isoformat() if nvb.seconds else None,
-            "not_valid_after": nva.ToDatetime().isoformat() if nva.seconds else None,
-            "licensed_features": list(info.licensed_features),
-        }

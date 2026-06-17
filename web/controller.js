@@ -166,7 +166,7 @@ function setConnectedUI(connected) {
     setMode("sit");   // reflect that robot is (or will be) sitting
     // Server link is down, so the robot link is unknown: show offline until a
     // fresh status arrives.
-    setRobotStatus(false, "server unreachable");
+    setRobotStatus(false, false, "server unreachable");
   }
 }
 
@@ -174,18 +174,27 @@ function setConnectedUI(connected) {
 // Status display
 // -----------------------------------------------------------------------
 
-function setRobotStatus(connected, error) {
+function setRobotStatus(connected, controlReady, error) {
   const el = document.getElementById("robot-status");
-  el.className = `robot-status ${connected ? "online" : "offline"}`;
-  el.textContent = connected ? "ROBOT ●" : "ROBOT ○";
-  el.title = connected
-    ? "Server link to robot: connected"
-    : `Server link to robot: offline${error ? " (" + error + ")" : ""}`;
+  if (!connected) {
+    el.className = "robot-status offline";
+    el.textContent = "ROBOT ○";
+    el.title = `Server link to robot: offline${error ? " (" + error + ")" : ""}`;
+  } else if (!controlReady) {
+    el.className = "robot-status degraded";
+    el.textContent = "ROBOT ◐";
+    el.title = "Robot reachable: cameras and license OK, but motor control is not "
+      + `ready (sit/stand/walk unavailable)${error ? " (" + error + ")" : ""}`;
+  } else {
+    el.className = "robot-status online";
+    el.textContent = "ROBOT ●";
+    el.title = "Robot connected, control ready";
+  }
 }
 
 function updateStatus(s) {
   // Robot link state (server to robot), distinct from the browser to server dot
-  if ("robot_connected" in s) setRobotStatus(s.robot_connected, s.robot_error);
+  if ("robot_connected" in s) setRobotStatus(s.robot_connected, s.control_ready, s.robot_error);
 
   // Sync mode badge with server state if it differs (e.g. after reconnect)
   if (s.sitting && state.mode !== "sit")   setMode("sit");
