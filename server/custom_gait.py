@@ -259,6 +259,10 @@ class CustomGaitWalker:
         gait_cmd.drive_velocity_body.linear.x = vx
         gait_cmd.drive_velocity_body.linear.y = vy
         gait_cmd.drive_velocity_body.angular = v_rot
+        # Live roll/pitch/yaw and height while walking (the "roll-while-walking"
+        # Path A): CustomGaitCommand.body_orientation_offset is a realtime EulerZYX
+        # axis in this SDK, so roll varies continuously per tick with no re-staging.
+        # See docs/roll_while_walking_findings.md.
         gait_cmd.body_orientation_offset.roll = roll
         gait_cmd.body_orientation_offset.pitch = pitch
         gait_cmd.body_orientation_offset.yaw = yaw
