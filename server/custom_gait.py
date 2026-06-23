@@ -119,9 +119,10 @@ class CustomGaitWalker:
         Raises RuntimeError if the choreography license is absent, which is the
         documented preflight for Custom Gait.
         """
-        # The choreography service is not part of the standard SDK registration.
-        sdk.register_service_client(ChoreographyClient)
-
+        # NOTE: the choreography service client is registered in SpotController
+        # __init__, BEFORE the robot is created — registering it here (after
+        # create_robot) is too late and makes ensure_client raise
+        # UnregisteredServiceTypeError. `sdk` is kept for signature compatibility.
         license_client = self._robot.ensure_client(LicenseClient.default_service_name)
         feature = ChoreographyClient.license_name   # == "choreography"
         enabled = license_client.get_feature_enabled([feature])

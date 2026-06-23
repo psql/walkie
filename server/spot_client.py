@@ -36,6 +36,7 @@ from bosdyn.client.frame_helpers import (
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.image import ImageClient, build_image_request
 from bosdyn.client.license import LicenseClient
+from bosdyn.choreography.client.choreography import ChoreographyClient
 from bosdyn.api import image_pb2
 
 from custom_gait import CustomGaitWalker
@@ -153,6 +154,13 @@ class SpotController:
     def __init__(self, hostname: str):
         self.hostname = hostname
         self.sdk = bosdyn.client.create_standard_sdk("spot-controller")
+        # The Choreography service (Custom Gait) is not part of the standard SDK
+        # client registration, and register_service_client MUST run BEFORE
+        # create_robot: the Robot caches the service-type map at creation, so a
+        # later registration (e.g. inside the walker's setup) does not reach it and
+        # ensure_client raises UnregisteredServiceTypeError. Registering here is
+        # harmless for the mobility backend.
+        self.sdk.register_service_client(ChoreographyClient)
         self.robot = self.sdk.create_robot(hostname)
         self.state = ControlState()
         self._lock = threading.Lock()
