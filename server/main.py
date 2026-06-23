@@ -56,6 +56,58 @@ connected_clients: Set[WebSocket] = set()
 _ws_control_counter: int = 0   # throttle input logging
 
 
+# ------------------------------------------------------------------
+# Transport selection — Ethernet (shore port) preferred, Wi-Fi fallback
+# ------------------------------------------------------------------
+# Spot is reachable on two links: the rear "shore" Ethernet port (default
+# 10.0.0.3, must be enabled in the robot's Network Setup → Ethernet tab) and its
+# own Wi-Fi access point (192.168.80.3). We probe the API port (443) on each
+# candidate in preference order and connect to the first that answers, so a
+# plugged-in Ethernet cable is used automatically while Wi-Fi keeps working when
+# it is not. Re-resolved on every reconnect, so swapping links is transparent.
+
+SPOT_API_PORT = 443
+_PROBE_TIMEOUT_S = 1.0
+
+
+def _candidate_hostnames() -> list:
+    """Spot addresses to try, in preference order (Ethernet first).
+
+    Override with SPOT_HOSTNAMES (comma-separated) for full control. Otherwise
+    default to the shore-Ethernet IP first, then SPOT_HOSTNAME (the Wi-Fi AP
+    address, kept for backward compatibility), deduped preserving order.
+    """
+    explicit = os.environ.get("SPOT_HOSTNAMES")
+    if explicit:
+        cands = [h.strip() for h in explicit.split(",") if h.strip()]
+    else:
+        cands = ["10.0.0.3"]   # rear shore-Ethernet port (preferred when plugged in)
+        cands.append(os.environ.get("SPOT_HOSTNAME", "192.168.80.3"))   # Wi-Fi AP
+    seen: Set[str] = set()
+    return [c for c in cands if not (c in seen or seen.add(c))]
+
+
+def _reachable(host: str, port: int = SPOT_API_PORT, timeout: float = _PROBE_TIMEOUT_S) -> bool:
+    """True if a TCP connection to host:port succeeds within `timeout` seconds."""
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def resolve_spot_hostname() -> tuple:
+    """Return (hostname, candidates): the first reachable Spot address, or the
+    first candidate as a fallback so the caller still surfaces a clear connection
+    error when nothing answers. Blocking (socket probes) — call via to_thread."""
+    cands = _candidate_hostnames()
+    for h in cands:
+        if _reachable(h):
+            return h, cands
+    return cands[0], cands
+
+
 async def _status_payload() -> dict:
     """Status dict for the UI, valid whether or not the robot is connected.
 
@@ -108,20 +160,24 @@ async def _robot_connect_loop():
     controller is clean.
     """
     global spot, spot_error
-    hostname = os.environ.get("SPOT_HOSTNAME")
     username = os.environ.get("SPOT_USERNAME", "user")
     password = os.environ.get("SPOT_PASSWORD")
 
-    if not hostname or not password:
-        spot_error = "SPOT_HOSTNAME / SPOT_PASSWORD not set"
+    if not password:
+        spot_error = "SPOT_PASSWORD not set"
         logger.error(f"Robot config missing: {spot_error}. Serving UI without robot control.")
         return
 
     # Stage 1: authenticate + read-only connect (cameras, license, telemetry).
-    # Retry the whole thing until the robot is reachable.
-    controller = SpotController(hostname)
+    # Retry the whole thing until the robot is reachable. The link (Ethernet vs
+    # Wi-Fi) is re-resolved each attempt, so swapping cables is picked up here.
+    controller = None
     while True:
         try:
+            hostname, cands = await asyncio.to_thread(resolve_spot_hostname)
+            if controller is None or controller.hostname != hostname:
+                controller = SpotController(hostname)
+                logger.info(f"Spot link selected: {hostname}  (candidates: {', '.join(cands)})")
             logger.info(f"Connecting to Spot at {hostname}")
             await asyncio.to_thread(controller.authenticate, username, password)
             await asyncio.to_thread(controller.connect)
@@ -313,13 +369,13 @@ async def license_info():
     if spot and spot.robot_connected:
         result = await asyncio.to_thread(spot.get_license)
     else:
-        hostname = os.environ.get("SPOT_HOSTNAME")
         username = os.environ.get("SPOT_USERNAME", "user")
         password = os.environ.get("SPOT_PASSWORD")
-        if not hostname or not password:
+        if not password:
             return JSONResponse(
-                {"error": "SPOT_HOSTNAME / SPOT_PASSWORD not set"}, status_code=503
+                {"error": "SPOT_PASSWORD not set"}, status_code=503
             )
+        hostname, _ = await asyncio.to_thread(resolve_spot_hostname)
         result = await asyncio.to_thread(read_license, hostname, username, password)
     status_code = 502 if "error" in result else 200
     return JSONResponse(result, status_code=status_code)

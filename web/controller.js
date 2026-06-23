@@ -196,11 +196,26 @@ function updateStatus(s) {
   // Robot link state (server to robot), distinct from the browser to server dot
   if ("robot_connected" in s) setRobotStatus(s.robot_connected, s.control_ready, s.robot_error);
 
-  // Prominent banner for the current robot error (e.g. power-on fault). Shows
-  // whenever control is not ready and the server reported a reason; the full
-  // detail (FaultState) is in the LOGS panel below.
+  // Prominent banner for robot-link problems. Two cases:
+  //  1) Robot unreachable (server can't connect at all): show a connectivity
+  //     checklist — the #1 gotcha is the rear Ethernet ("Shore") port being
+  //     disabled on the robot, which links physically but answers nothing.
+  //  2) Reachable but control not ready (e.g. power-on fault / E-stop): show the
+  //     reason; full detail (FaultState) is in the LOGS panel below.
   const banner = document.getElementById("robot-banner");
-  if (s.robot_error && !s.control_ready) {
+  const reachable = s.robot_connected;
+  if (!reachable) {
+    banner.innerHTML =
+      "⚠ Can't reach the robot." +
+      "<div class=\"banner-hint\">" +
+      "<b>Ethernet:</b> in Spot's admin console (<code>https://192.168.80.3</code> over Wi-Fi) " +
+      "open <b>Network&nbsp;Setup → Ethernet</b> and turn on <b>Shore Ethernet Port Enabled</b> " +
+      "(IP <code>10.0.0.3</code>). Set your computer to a static <code>10.0.0.x</code> address.<br>" +
+      "<b>Wi-Fi:</b> join Spot's network and reach it at <code>192.168.80.3</code>." +
+      "</div>" +
+      (s.robot_error ? "<div class=\"banner-err\">" + esc(s.robot_error) + "</div>" : "");
+    banner.classList.remove("hidden");
+  } else if (s.robot_error && !s.control_ready) {
     banner.textContent = "⚠ Robot control not ready: " + s.robot_error;
     banner.classList.remove("hidden");
   } else {
